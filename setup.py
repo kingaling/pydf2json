@@ -23,7 +23,7 @@ setup(
     license = 'GPL-3.0',
     author = 'Shane King',
     author_email = 'kinagling@meatchicken.net',
-    description = 'PDF analysis tool utilizing PDF to JSON conversion.',
+    description = 'PDF analysis. Convert contents of PDF to a JSON-style python dictionary.',
     long_description = long_description,
     scripts = ['pydf.py'],
     python_requires = '>=2.6, <3',
