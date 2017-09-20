@@ -1,7 +1,7 @@
 import pydf2json
 import json
 import argparse
-
+import re
 
 def argbuilder():
     parser = argparse.ArgumentParser(epilog="Note: Starred (*) arguments are disabled by default and will produce VERBOSE results if enabled.")
@@ -52,7 +52,12 @@ def main():
     try:
         jsonpdf = pdf_object.GetPDF(x)
     except:
-        print 'Something went horribly wrong. Please send PDF to Shane King.'
+        print 'Unhandled exception. Aborting analysis.'
+        exit()
+    # jsonpdf = pdf_object.GetPDF(x) # Debugging...
+
+    if re.match('exception', str(jsonpdf)):
+        print jsonpdf
         exit()
 
     if args.show_json:
@@ -63,9 +68,7 @@ def main():
     # Create command line summary
 
     if not args.no_summary:
-        # print json.dumps(jsonpdf['Summary'], indent=4)
         # Parse summary for presentation...
-        #print '\npydf.py v1.0 by Shane King <kingaling@meatchicken.net>\n'
         print 'Summary of PDF attributes:'
         print '--------------------------\n'
         print '{:<20} {:>10}'.format('AA:', str(len(jsonpdf['Summary']['AA'])))

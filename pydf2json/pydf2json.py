@@ -7,8 +7,8 @@ from tempfile import gettempdir
 from platform import system as platform_sys
 
 
-__VERSION__ = ('v1.0')
-__AUTHOR__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
+__version__ = ('0.1.0.dev3')
+__author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 class PyDF2JSON(object):
 
@@ -56,8 +56,8 @@ class PyDF2JSON(object):
     # |  |  |  |  |_____________ Not used yet (Javascript) *
     # |  |  |  |________________ Not used yet
     # |  |  |___________________ Not used yet
-    # |  |______________________ Not used yet
-    # |_________________________ Not used yet (Only 1 page and it contains Javascript) *
+    # |  |______________________ Not used yet (Only 1 page and it contains Javascript) *
+    # |_________________________ Not used yet (Malformed PDF / Processing error encountered)
 
     # Starred items (*) will be calculated during PDF summary
 
@@ -99,6 +99,8 @@ class PyDF2JSON(object):
 
         # Proceed with PDF body processing
         PDF['Body'] = self.__body_scan(x, s_offset)
+        if re.match('exception', str(PDF['Body'])):
+            return PDF['Body']
 
         # Assemble a summary of things.
         PDF['Summary'] = {}
@@ -399,7 +401,12 @@ class PyDF2JSON(object):
                 for i in range(0, len(names)):
                     if type(names[i]) == dict:
                         for j in names[i]:
-                            name_tree = names[i][j]
+                            name_tree = ''
+                            if type(names[i][j]) == dict:
+                                for jj in names[i][j]:
+                                    name_tree = names[i][j][jj]
+                            else:
+                                name_tree = names[i][j]
                             name_tree = name_tree.replace(' R', '')
                             # Access the name tree and check for /JavaScript and /EmbeddedFiles entries
                             for k in range(0, len(pdfjson['Indirect Objects'])):
@@ -425,7 +432,10 @@ class PyDF2JSON(object):
             if len(optional_data) > 1:
                 i_ref = optional_data[-1:][0].values()[0]
             else:
-                i_ref = optional_data[0].values()[0]
+                if len(optional_data) > 0:
+                    i_ref = optional_data[0].values()[0]
+                else:
+                    return 0 # page count = 0
             i_ref = i_ref.replace(' R', '')
             for i in range(0,len(pdfjson['Indirect Objects'])):
                 if pdfjson['Indirect Objects'][i].has_key(i_ref):
@@ -452,7 +462,6 @@ class PyDF2JSON(object):
                                             pagecount = int(pdfjson['Indirect Objects'][i][j]['Decoded Object Stream'][i_ref]['Value']['Count']['Value'])
 
             return pagecount
-
 
 
     def __header_scan(self, x):
@@ -564,11 +573,18 @@ class PyDF2JSON(object):
                         if re.match('stream', x[c:]):
                             c += 6
                             ret = self.__process_stream(x, body['Indirect Objects'][index][cur_obj]['Value'], c)
+                            if re.match('exception\(Length missing\)', str(ret[0])):
+                                self.__update_mal_index(255, 0) # Setting max value. Judging missing lengths as malware.
+                                # Return immediately with an error
+                                return 'exception(Length missing)'
                             c = ret[1]
                             if ret[2] == '':
                                 stream_type = 'Unknown'
                             else:
                                 stream_type = ret[2] # This is returned from __process_stream() function
+                            if re.match('exception\(Length error\)', str(ret[0])):
+                                self.__update_mal_index(1, 0)
+                                continue
                             if not stream_type == None:
                                 if stream_displays[stream_type]:
                                     body['Indirect Objects'][index][cur_obj]['Stream Data'] = ret[0]
@@ -1437,6 +1453,9 @@ class PyDF2JSON(object):
 
 
     def __process_stream(self, x_str, object_def, s_point):
+        decode_ignore_type = {
+            'XObject'
+        }
         c = s_point
         while True:
             if re.match('\x0D\x0A', x_str[c:]):
@@ -1471,43 +1490,45 @@ class PyDF2JSON(object):
                             end_stream -= 1
                     length_stream = end_stream
                 if length_stream == '':
-                    print 'There is a problem with the stream length. Exiting.'
-                    exit()
+                    return 'exception(Length error)', c, '', ''
         else:
-            length_stream = 'Unknown'
-            print 'A length key is required for stream objects. Malformed PDF. Exiting.'
-            exit()
+            return 'exception(Length missing)', '', '', ''
         stream_data = x_str[stream_start:stream_start + length_stream]
         # Now get any stream decoding parameters...
-        if object_def.has_key('Filter'):
-            filters = object_def['Filter']
-            if object_def.has_key('DecodeParms'):
-                decodeparms = object_def['DecodeParms']
-            else:
-                if object_def.has_key('DP'):
-                    decodeparms = object_def['DP']
+        if object_def.has_key('Type'):
+            s_type = object_def['Type']['Value']
+        else:
+            s_type = ''
+        if not s_type in decode_ignore_type:
+            if object_def.has_key('Filter'):
+                filters = object_def['Filter']
+                if object_def.has_key('DecodeParms'):
+                    decodeparms = object_def['DecodeParms']
                 else:
-                    decodeparms = []
-            # Checking something for later here...
-            if len(decodeparms) > 0:
-                if decodeparms['Value Type'] == 'Array': # Alert the media
-                    print 'We have an array of decode parameters. Exiting. Fix your code!'
-                    exit()
-            if filters['Value Type'] == 'Array':
-                new_filters = []
-                for i in filters['Value']:
-                    new_filters.append(i['Value'])
-                filters = new_filters
-            else:
-                new_filters = []
-                new_filters.append(filters['Value'])
-                filters = new_filters
-            if len(decodeparms) > 0:
-                decodeparms = decodeparms['Value']
-            if length_stream == 0:
-                return stream_data, c, None, ''
-            decoded_stream = self.__filter_parse(stream_data, filters, decodeparms)
-            stream_data = decoded_stream
+                    if object_def.has_key('DP'):
+                        decodeparms = object_def['DP']
+                    else:
+                        decodeparms = []
+                # Checking something for later here...
+                if len(decodeparms) > 0:
+                    if decodeparms['Value Type'] == 'Array': # Alert the media
+                        print 'We have an array of decode parameters. Exiting. Fix your code!'
+                        exit()
+                if filters['Value Type'] == 'Array':
+                    new_filters = []
+                    for i in filters['Value']:
+                        new_filters.append(i['Value'])
+                    filters = new_filters
+                else:
+                    new_filters = []
+                    new_filters.append(filters['Value'])
+                    filters = new_filters
+                if len(decodeparms) > 0:
+                    decodeparms = decodeparms['Value']
+                if length_stream == 0:
+                    return stream_data, c, None, ''
+                decoded_stream = self.__filter_parse(stream_data, filters, decodeparms)
+                stream_data = decoded_stream
 
         stream_type = self.__identify_stream(stream_data)
         stream_hash = self.__hash_stream(stream_data)

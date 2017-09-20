@@ -27,7 +27,7 @@ setup(
     long_description = long_description,
     scripts = ['pydf.py'],
     python_requires = '>=2.6, <3',
-    keywords = 'pdf json pydf2json analysis',
+    keywords = ['pdf', 'pydf2json', 'pdf analysis'],
     classifiers = [
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Information Technology',
