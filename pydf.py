@@ -3,6 +3,11 @@ import json
 import argparse
 import re
 
+
+__version__ = ('1.0.0.dev1')
+__author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
+
+
 def argbuilder():
     parser = argparse.ArgumentParser(epilog="Note: Starred (*) arguments are disabled by default and will produce VERBOSE results if enabled.")
     parser.add_argument("pdf", help="Source PDF")
@@ -50,11 +55,16 @@ def main():
 
     # JSON'ify the pdf! :)
     try:
-        jsonpdf = pdf_object.GetPDF(x)
-    except:
-        print 'Unhandled exception. Aborting analysis.'
+        jsonpdf_tuple = pdf_object.GetPDF(x)
+    except Exception as e:
+        print e
         exit()
-    # jsonpdf = pdf_object.GetPDF(x) # Debugging...
+
+    #jsonpdf_tuple = pdf_object.GetPDF(x) # Debugging...
+    jsonpdf = jsonpdf_tuple[0]
+    omap = jsonpdf_tuple[1]
+    summary = jsonpdf_tuple[2]
+    del jsonpdf_tuple
 
     if re.match('exception', str(jsonpdf)):
         print jsonpdf
@@ -65,51 +75,52 @@ def main():
 
     # Things I gotta do:
     # Error checking everywhere
-    # Create command line summary
 
     if not args.no_summary:
         # Parse summary for presentation...
         print 'Summary of PDF attributes:'
         print '--------------------------\n'
-        print '{:<20} {:>10}'.format('AA:', str(len(jsonpdf['Summary']['AA'])))
-        print '{:<20} {:>10}'.format('AcroForms:', str(len(jsonpdf['Summary']['AcroForm'])))
-        print '{:<20} {:>10}'.format('Embedded Files:', str(len(jsonpdf['Summary']['Embedded Files'])))
-        if len(jsonpdf['Summary']['JS']) == 0:
-            print '{:<20} {:>10}'.format('JS:', '0')
-        else:
-            jscount = 0
-            for i in range(0, len(jsonpdf['Summary']['JS'])):
-                for j in jsonpdf['Summary']['JS'][i]:
-                    if not type(jsonpdf['Summary']['JS'][i][j]) == dict:
-                        jscount += 1
-                    else: # Looks like we got JS in an object stream. Do it...
-                        for k in jsonpdf['Summary']['JS'][i][j]:
-                            jscount += 1
-            print '{:<10} {:>20}'.format('JS:', str(jscount))
-        print '{:<20} {:>10}'.format('Launch:', str(len(jsonpdf['Summary']['Launch'])))
-        print '{:<20} {:>10}'.format('Object Streams:', str(len(jsonpdf['Summary']['Object Streams'])))
-        print '{:<20} {:>10}'.format('OpenActions:', str(len(jsonpdf['Summary']['OpenAction'])))
-        print '{:<10} {:>20}'.format('Pages:', str(jsonpdf['Summary']['Page Count']))
+        print '{:<20} {:>10}'.format('AA:', str(len(summary['Additional Actions'])))
+        print '{:<20} {:>10}'.format('AcroForms:', str(summary['AcroForms']))
+        print '{:<20} {:>10}'.format('Embedded Files:', str(len(summary['EmbeddedFiles'])))
+        print '{:<20} {:>10}'.format('JS:', summary['JS'])
+        print '{:<20} {:>10}'.format('Launch:', str(len(summary['Launch'])))
+        print '{:<20} {:>10}'.format('Object Streams:', str(summary['Object Streams']))
+        print '{:<20} {:>10}'.format('OpenActions:', str(summary['OpenActions']))
+        print '{:<10} {:>20}'.format('Pages:', str(summary['Pages']))
 
-        if len(jsonpdf['Summary']['Names']) > 0:
+        if len(summary['AcroForm Actions']) > 0:
+            print '\nAcroForm Actions'
+            for i in summary['AcroForm Actions']:
+                print '\t' + str(i)
+
+        if len(summary['Launch']) > 0:
+            print '\nLaunches detected:'
+            for i in summary['Launch']:
+                print '\t' + str(i)
+
+        if len(summary['Names']) > 0:
             print '\nName Tree trace entries:'
-            if len(jsonpdf['Summary']['EmbeddedFiles']) > 0:
+            if len(summary['EmbeddedFiles']) > 0:
                 print '\tEmbeddedFiles'
-            if len(jsonpdf['Summary']['JavaScript']) > 0:
-                print '\tJavaScript'
+                for i in summary['EmbeddedFiles']:
+                    print '\t\t' + str(i)
+            if len(summary['JavaScript']) > 0:
+                print '\n\tJavaScript'
+                for i in summary['JavaScript']:
+                    print '\t\t' + str(i)
 
-        if len(jsonpdf['Summary']['URI List']) == 0:
-            print '{:<21} {:>10}'.format('\nURIs in document:', '0')
-        else:
-            print '\nURIs in document:'
-            for i in range(0, len(jsonpdf['Summary']['URI List'])):
-                for j in jsonpdf['Summary']['URI List'][i]:
-                    if not type(jsonpdf['Summary']['URI List'][i][j]) == dict:
-                        print '  O: ' + j + '\t' + jsonpdf['Summary']['URI List'][i][j]
-                    else: # Looks like we got URIs in an object stream. Do it...
-                        for k in jsonpdf['Summary']['URI List'][i][j]:
-                            print '  OS: ' + j + '\t' + 'O: ' + k + '\t\t' + jsonpdf['Summary']['URI List'][i][j][k]
-
+        if summary.has_key('Link Annotations'):
+            if len(summary['Link Annotations']) > 0:
+                print '\nURIs in document:'
+                tmp_link = []
+                for i in summary['Link Annotations']:
+                    if not i['Link'] in tmp_link:
+                        tmp_link.append(i['Link'])
+                for i in tmp_link:
+                    print '\t' + i
+            else:
+                print '{:<21} {:>10}'.format('\nURIs in document:', '0')
 
 if __name__ == '__main__':
     main()
