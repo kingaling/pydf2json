@@ -7,7 +7,7 @@ from tempfile import gettempdir
 from platform import system as platform_sys
 
 
-__version__ = ('1.0.0.dev1')
+__version__ = ('1.0.1.dev1')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -494,7 +494,7 @@ class PyDF2JSON(object):
             return executing
 
 
-        def __process_names():
+        def __process_names(names):
             def __process_embeddedfiles(embedded_files):
                 embedded = []
                 tmp_files = []
@@ -551,26 +551,30 @@ class PyDF2JSON(object):
                                                     tmp_java.append(tmp_var)
                 return tmp_java
 
-            ref_names, files, javascript = [], [], []
-            for i in names:
-                if type(i) == dict:
-                    if i.has_key('Value Type'):
-                        if i['Value Type'] == 'Indirect Reference':
-                            ref_names.append(i['Value'].replace(' R', ''))
-            if len(ref_names) > 0:
-                for i in ref_names:
-                    if i in processed_objects:
-                        continue
-                    processed_objects.append(i)
-                    ref_map = self.__map_object(pdf['Body'], omap, i, None, True)
-                    for j in ref_map:
-                        for k in range(0, len(ref_map[j])):
-                            if ref_map[j][k]['Value']['Value Type'] == 'Dictionary':
-                                if ref_map[j][k]['Value']['Value'].has_key('EmbeddedFiles'):
-                                    files = __process_embeddedfiles(ref_map[j][k]['Value']['Value']['EmbeddedFiles'])
-                                if ref_map[j][k]['Value']['Value'].has_key('JavaScript'):
-                                    javascript = __process_javascript(ref_map[j][k]['Value']['Value']['JavaScript'])
-            return files, javascript
+            if type(names) == list:
+                for i in names:
+                    __process_names(i)
+
+            if type(names) == dict:
+                if names.has_key('Value Type'):
+                    if names['Value Type'] == 'Indirect Reference':
+                        names_ref = names['Value'].replace(' R', '')
+                        names_val = self.__map_object(pdf['Body'], omap, names_ref, None, True)
+                        for i in names_val:
+                            for j in range(0, len(names_val[i])):
+                                __process_names(names_val[i][j]['Value'])
+                    else:
+                        __process_names(names['Value'])
+                if names.has_key('JavaScript'):
+                    java = __process_javascript(names['JavaScript'])
+                    for i in java:
+                        name_javascript.append(i)
+                if names.has_key('EmbeddedFiles'):
+                    emb = __process_embeddedfiles(names['EmbeddedFiles'])
+                    for i in emb:
+                        name_files.append(i)
+
+            return
 
 
         def __process_launch(obj):
@@ -590,8 +594,7 @@ class PyDF2JSON(object):
         def __process_js(obj):
             if type(obj) == list:
                 for i in range(0, len(obj)):
-                    if type(obj[i]) == dict:
-                        __process_js(obj[i])
+                    __process_js(obj[i])
             if type(obj) == dict:
                 if obj.has_key('Value Type'):
                     __process_js(obj['Value'])
@@ -656,14 +659,16 @@ class PyDF2JSON(object):
             print 'Impossibru! There are no pages?!'
             exit()
 
+        name_files, name_javascript = [], []
         if len(names) > 0:
-            name_tree = __process_names()
-        else:
-            name_tree = [[], []]
+            #name_tree = __process_names(names)
+            __process_names(names)
+        #else:
+        #    name_tree = [[], []]
 
         js_checklist = (
             openactions,
-            name_tree[1]
+            name_javascript
         )
         js = []
         launchie = []
@@ -677,8 +682,8 @@ class PyDF2JSON(object):
         summary['AcroForm Actions'] = a_actions
         summary['OpenActions'] = open_count
         summary['Names'] = names
-        summary['EmbeddedFiles'] = name_tree[0]
-        summary['JavaScript'] = name_tree[1]
+        summary['EmbeddedFiles'] = name_files
+        summary['JavaScript'] = name_javascript
         summary['JS'] = js_count
         summary['Launch'] = launchie
         if pdf['Body'].has_key('Object Streams'):

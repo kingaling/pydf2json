@@ -4,7 +4,7 @@ import argparse
 import re
 
 
-__version__ = ('1.0.0.dev1')
+__version__ = ('1.0.1.dev1')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -109,6 +109,7 @@ def main():
                 print '\n\tJavaScript'
                 for i in summary['JavaScript']:
                     print '\t\t' + str(i)
+                print '\n\t\tWarning: Document level JavaScript entries are equivalent to an OpenAction!'
 
         if summary.has_key('Link Annotations'):
             if len(summary['Link Annotations']) > 0:
