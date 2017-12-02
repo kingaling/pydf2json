@@ -17,7 +17,7 @@ long_description = open(path.join(here, 'README.rst'), 'rt').read()
 
 setup(
     name = 'pydf2json',
-    version = '1.0.1.dev1',
+    version = '1.0.2.dev1',
     packages=['pydf2json'],
     url = 'https://github.com/xamiel/pydf2json',
     license = 'GPL-3.0',

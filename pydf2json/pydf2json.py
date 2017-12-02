@@ -7,7 +7,7 @@ from tempfile import gettempdir
 from platform import system as platform_sys
 
 
-__version__ = ('1.0.1.dev1')
+__version__ = ('1.0.2.dev1')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -224,9 +224,13 @@ class PyDF2JSON(object):
                     io_entry = omap['IO'][obj]
                     for j in range(0, len(io_entry)):
                         io_index = io_entry[j][0]
-                        tmp_root_obj = pdf['Body']['Indirect Objects'][io_index][obj]['Value']['Root']['Value'].replace(' R', '')
-                        if not tmp_root_obj in root_objects:
-                            root_objects.append(tmp_root_obj)
+                        if pdf['Body']['Indirect Objects'][io_index][obj]['Value'].has_key('Root'):
+                            tmp_root_obj = pdf['Body']['Indirect Objects'][io_index][obj]['Value']['Root']['Value'].replace(' R', '')
+                            if not tmp_root_obj in root_objects:
+                                root_objects.append(tmp_root_obj)
+
+            if  len(root_objects) == 0:
+                self.__error_control('SpecViolation', 'Required \'Root\' entry missing.')
 
             return root_objects, xref_entries
 
