@@ -7,7 +7,7 @@ from tempfile import gettempdir
 from platform import system as platform_sys
 
 
-__version__ = ('1.0.2.dev1')
+__version__ = ('2.0.0.dev1')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -136,13 +136,6 @@ class PyDF2JSON(object):
 
         # Assemble a summary of things.
         summary = {}
-        '''
-        try:
-            self.__get_summary(PDF, summary, omap)
-        except:
-            print 'lol'
-            exit()
-        '''
         try:
             ret = self.__get_summary(PDF, summary, omap)
         except Exception as e:
@@ -282,13 +275,13 @@ class PyDF2JSON(object):
                                 names.append(pdf['Body'][j][cat_index][i]['Value']['Names'])
 
                             if pdf['Body'][j][cat_index][i]['Value'].has_key('Outlines'):
-                                outlines.append(pdf['Body'][j][cat_index][i]['Value']['Outlines'])
+                                outlines.append(pdf['Body'][j][cat_index][i]['Value']['Outlines']['Value'])
 
                             if pdf['Body'][j][cat_index][i]['Value'].has_key('URI'):
-                                uris.append(pdf['Body'][j][cat_index][i]['Value']['URI'])
+                                uris.append(pdf['Body'][j][cat_index][i]['Value']['URI']['Value'])
 
                             if pdf['Body'][j][cat_index][i]['Value'].has_key('AA'):
-                                aa.append(pdf['Body'][j][cat_index][i]['Value']['URI'])
+                                aa.append(pdf['Body'][j][cat_index][i]['Value']['AA']['Value'])
                         else:
                             self.__error_control('SpecViolation', 'Required \'Catalog\' entry missing.')
 
@@ -578,6 +571,7 @@ class PyDF2JSON(object):
                     for i in emb:
                         name_files.append(i)
 
+            #if type(names) == dict:
             return
 
 
@@ -1796,6 +1790,44 @@ class PyDF2JSON(object):
             return ref_array
 
 
+        def __unknown_search(datas, str_array, comment_array, hex_array, array_array, names_array,
+                             indirect_ref_array, dict_array, position):
+            unks_array = []
+            pos = position
+            all_array = [] # Combining all the arrays
+
+            for i in str_array:
+                all_array.append(i)
+            for i in comment_array:
+                all_array.append(i)
+            for i in hex_array:
+                all_array.append(i)
+            for i in names_array:
+                all_array.append(i)
+            for i in indirect_ref_array:
+                all_array.append(i)
+
+            all_array = sorted(all_array, key=lambda k: k['Offset'])
+
+            while True:
+                if re.search('[^\x00\x09\x0A\x0D\x0C\x20<>\[\]\/\%]', datas[pos:]):
+                    s_start = re.search('[^\x00\x09\x0A\x0D\x0C\x20<>\[\]\/\%]', datas[pos:]).start()
+                    pos += s_start
+                    p_check = __point_check(all_array, pos)
+                    if p_check[0] == 'Invalid':
+                        pos += p_check[1]
+                        continue
+                    else:
+                        offset = p_check[1]
+                        length = re.search('[\x00\x09\x0A\x0D\x0C\x20<>\[\]\/\%]', datas[offset:]).start()
+                        end = offset + (length - 1)
+                        unks_array.append({'Offset': offset, 'Length': length, 'End': end})
+                        pos += length
+                else:
+                    break
+            return unks_array
+
+
         def __object_search(datas, position = 0):
             pos = position
             object_list = {}
@@ -1813,6 +1845,10 @@ class PyDF2JSON(object):
             object_list['Indirect Reference'] = indirect_ref_list
             dict_list = __dictionary_search(datas, str_list, hex_list, pos)
             object_list['Dict'] = dict_list
+            unk_list = __unknown_search(datas, str_list, comment_list,
+                                        hex_list, array_list, names_list,
+                                        indirect_ref_list, dict_list, pos)
+            object_list['Unknown'] = unk_list
             list_points = []
             for i in object_list:
                 for j in object_list[i]:
@@ -1828,15 +1864,21 @@ class PyDF2JSON(object):
                         return i['Type'], i['End'], i['Length']
                 return None, ''
 
-            def set_structure(point_type):
-                data_structure = ''
-                if point_type == 'Dict':
-                    data_structure = {}
-                if point_type == 'Array':
-                    data_structure = []
-                if point_type == 'String' or point_type == 'Hex' or point_type == 'Name':
-                    data_structure = ''
-                return data_structure
+            def eval_none(char, k_val, pos):
+                k_type = 'Unknown'
+                curr_val = k_val
+                curr_pos = pos
+                if re.search('[^\s\<\>\[\]\(\)\/]', char):
+                    curr_val += char
+                curr_pos += 1
+                return k_type, curr_val, curr_pos
+                #return curr_val, curr_pos
+
+            def eval_name(k_val, pos):
+                k_type = 'Named Object'
+                curr_val = k_val
+                curr_pos = pos + 1
+                return k_type, curr_val, curr_pos
 
 
             if data_type == 'Value' or data_type == 'Name' or data_type == 'String':
@@ -1851,148 +1893,140 @@ class PyDF2JSON(object):
                 end = length
             else:
                 end = eod
+
             pos = re.search('[^\s]', datas).start()
             pos += position
             key = True
             temp_dict = {}
+
             while pos < length and pos < end:
                 k_val = ''
                 k_type = ''
                 v_val = ''
                 v_type = ''
-                while key: # We are assembling a key name
+
+                while key:
+                    if data_type == 'Array':
+                        if len(k_val) > 0:
+                            x.append({'Value Type': k_type, 'Value': k_val})
+                            k_type = ''
+                            k_val = ''
                     p_type = point_type(object_points, pos)
                     if p_type[0] == None:
-                        if re.search('[^\s\<\>\[\]\(\)\/]', datas[pos]):
-                            k_type = 'Unknown'
-                            k_val += datas[pos]
-                            pos += 1
-                        else:
-                            if k_val == '':
-                                pos += 1
-                            else:
-                                key = False
+                        pos += 1
+
+                    if p_type[0] == 'Hex':
+                        k_type = 'Hexidecimal String'
+                        k_val = datas[pos + 1:p_type[1]]
+                        pos = p_type[1] + 1
+
+                    if p_type[0] == 'String':
+                        k_type = 'Literal String'
+                        k_val = datas[pos + 1:p_type[1]]
+                        pos = p_type[1] + 1
+
                     if p_type[0] == 'Dict':
                         k_type = 'Dictionary'
                         pos += 2
                         ret = __assemble_object_structure(datas, object_points, 'Dict', p_type[1] + 1, pos)
                         k_val = ret
                         pos = p_type[1] + 1
-                    if p_type[0] == 'Indirect Reference':
-                        if not k_val == '':
-                            break
-                        k_type = 'Indirect Reference'
-                        k_val = datas[pos:p_type[1] + 1]
-                        pos = p_type[1] + 1
-                        key = True
-                        key = False
-                    if p_type[0] == 'Hex':
-                        k_type = 'Hex'
-                        k_val = datas[pos + 1:p_type[1]]
-                        pos = p_type[1] + 1
-                        key = False
-                    if p_type[0] == 'Name':
-                        k_type = 'Named Object'
-                        k_val = datas[pos + 1:p_type[1] + 1]
-                        pos = p_type[1] + 1
-                        ret = __assemble_object_structure(datas, object_points, 'Name', p_type[1] + 1, pos)
-                        key = False
-                    if p_type[0] == 'String':
-                        k_type = 'Literal String'
-                        k_val = datas[pos + 1:p_type[1]]
-                        pos = p_type[1] + 1
-                        key = False
+
                     if p_type[0] == 'Array':
                         k_type = 'Array'
                         pos += 1
                         ret = __assemble_object_structure(datas, object_points, 'Array', p_type[1] + 1, pos)
+                        pos = p_type[1] + 1
                         k_val = ret
+
+                    if p_type[0] == 'Unknown':
+                        k_type = 'Unknown'
+                        k_val = datas[pos:p_type[1] + 1]
                         pos = p_type[1] + 1
-                    if p_type[0] == 'Comment':
+
+                    if p_type[0] == 'Indirect Reference':
+                        k_type = 'Indirect Reference'
+                        k_val = datas[pos:p_type[1] + 1]
                         pos = p_type[1] + 1
+
+                    if p_type[0] == 'Name':
+                        k_type, k_val, pos = eval_name(datas[pos + 1:p_type[1] + 1], p_type[1])
+                        key = False
+
                     if pos >= end:
                         break
+
                 while not key:
-                    if data_type == 'Array':
-                        key = True
-                        break
                     p_type = point_type(object_points, pos)
                     if p_type[0] == None:
-                        if re.search('[^\s\<\>\[\]\(\)\/]', datas[pos]):
-                            v_type = 'Unknown'
-                            v_val += datas[pos]
-                            pos += 1
-                        else:
-                            if v_val == '':
-                                pos += 1
-                            else:
-                                key = True
-                    if p_type[0] == 'Dict':
-                        pos += 2
-                        ret = __assemble_object_structure(datas, object_points, 'Dict', p_type[1] + 1, pos)
-                        v_val = ret
-                        v_type = 'Dictionary'
-                        pos = p_type[1] + 1
-                        key = True
-                    if p_type[0] == 'Indirect Reference':
-                        v_type = 'Indirect Reference'
-                        v_val = datas[pos:p_type[1] + 1]
-                        pos = p_type[1] + 1
-                        key = True
+                        pos += 1
+
                     if p_type[0] == 'String':
                         v_type = 'Literal String'
                         v_val = datas[pos + 1:p_type[1]]
                         pos = p_type[1] + 1
                         key = True
+
+                    if p_type[0] == 'Dict':
+                        v_type = 'Dictionary'
+                        pos += 2
+                        ret = __assemble_object_structure(datas, object_points, 'Dict', p_type[1] + 1, pos)
+                        v_val = ret
+                        pos = p_type[1] + 1
+                        key = True
+
+                    if p_type[0] == 'Unknown':
+                        v_type = 'Unknown'
+                        v_val = datas[pos:p_type[1] + 1]
+                        pos = p_type[1] + 1
+                        key = True
+
+                    if p_type[0] == 'Indirect Reference':
+                        v_type = 'Indirect Reference'
+                        v_val = datas[pos:p_type[1] + 1]
+                        pos = p_type[1] + 1
+                        key = True
+
                     if p_type[0] == 'Hex':
                         v_type = 'Hexidecimal String'
-                        v_val = datas[pos + 1:p_type[1]]
+                        v_val = datas[pos:p_type[1] + 1]
                         pos = p_type[1] + 1
                         key = True
+
                     if p_type[0] == 'Name':
-                        if len(v_val) > 0:
-                            key = True
-                            break
-                        v_type = 'Named Object'
-                        v_val = datas[pos + 1:p_type[1] + 1]
-                        pos = p_type[1] + 1
+                        v_type, v_val, pos = eval_name(datas[pos + 1:p_type[1] + 1], p_type[1])
                         key = True
+
                     if p_type[0] == 'Array':
-                        if temp_dict.has_key('Type') and \
-                            temp_dict['Type']['Value'] == 'Encoding':
-                            v_val = []
-                            v_val.append(datas[pos + 1:pos + (p_type[2] - 1)])
-                            pos += p_type[2]
-                            v_type  ='Array'
-                            key = True
-                        else:
-                            pos += 1
-                            ret = __assemble_object_structure(datas, object_points, 'Array', p_type[1] + 1, pos)
-                            v_val = ret
-                            v_type = 'Array'
-                            pos = p_type[1] + 1
-                            key = True
-                    if p_type[0] == 'Comment':
+                        v_type = 'Array'
+                        pos += 1
+                        ret = __assemble_object_structure(datas, object_points, 'Array', p_type[1] + 1, pos)
                         pos = p_type[1] + 1
+                        v_val = ret
+                        key = True
+
                     if pos >= end:
                         break
-                if len(k_val) > 0 and (len(v_val) > 0 or type(v_val) == list) or type(v_val) == dict: # We have a key value pair. Add them to x.
+
+                if len(k_val) > 0 and len(v_val) > 0:
                     temp_dict[k_val] = {'Value Type': v_type, 'Value': v_val}
-                if len(k_val) > 0 and v_val == '':
-                    # We have a single value stored in k_val and is now the overall value of this function.
-                    # Check if we're in an array
-                    if data_type == 'Array':
-                        x.append({'Value Type': k_type, 'Value': k_val})
-                        #k_val = ''
-                    else:
-                        x = {'Value Type': k_type, 'Value': k_val}
-                if k_type == 'Array' and len(k_val) == 0: # We have an empty array as a key
-                    if data_type == 'Value': # We are probably in the root call of this function. x may be wrong data type...
-                        if len(x) == 0:
-                            x = {'Value Type': k_type, 'Value': k_val}
+
             if data_type == 'Dict':
-                x = temp_dict
-            return x
+                return temp_dict
+
+            if data_type == 'Array':
+                return x
+
+            if data_type == 'Value': # We might be in root call of this function
+                if type(k_val) == dict:
+                    temp_dict = {'Value Type': 'Dictionary', 'Value': k_val}
+                    return temp_dict
+                if type(k_val) == str:
+                    temp_dict = {'Value Type': k_type, 'Value': k_val}
+                    return temp_dict
+                if type(k_val) == list:
+                    temp_dict = {'Value Type': k_type, 'Value': k_val}
+                    return temp_dict
 
         c = s_point
         l = len(x_str)
