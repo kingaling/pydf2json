@@ -7,7 +7,7 @@ from tempfile import gettempdir
 from platform import system as platform_sys
 
 
-__version__ = ('2.0.0.dev1')
+__version__ = ('2.0.1.dev1')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -448,14 +448,16 @@ class PyDF2JSON(object):
 
         def __process_acroforms():
             # Get Fields entry. It's a required entry.
+            acro_fields = []
             for i in acroforms:
                 if i.has_key('Fields'):
-                    acro_fields = []
                     for j in range(0, len(i['Fields']['Value'])):
-                        acro_fields.append(i['Fields']['Value'][j]['Value'].replace(' R', ''))
-                else:
-                    print 'exception: Acroform missing \'Fields\' entry. Malformed PDF'
-                    exit()
+                        af_val = i['Fields']['Value'][j]['Value'].replace(' R', '')
+                        if not af_val in acro_fields:
+                            acro_fields.append(af_val)
+
+            if len(acro_fields) == 0:
+                self.__error_control('SpecViolation', 'Acroform missing \'Fields\' entry.')
 
             # Process acro_fields. For now... I care about actions being executed.
             actions = []
