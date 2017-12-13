@@ -7,7 +7,7 @@ from tempfile import gettempdir
 from platform import system as platform_sys
 
 
-__version__ = ('2.0.1.dev1')
+__version__ = ('2.0.8')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -166,12 +166,10 @@ class PyDF2JSON(object):
             root_objects = []
             if pdf['Body'].has_key('Trailers'):
                 for i in range(0, len(pdf['Body']['Trailers'])):
-                    root_entry = pdf['Body']['Trailers'][i]['Value']['Root']['Value']
-                    root_entry = root_entry.replace(' R', '')
-                    # Map it!
-                    # root_entry_index = omap['IO'][root_entry][0][0]
-                    if not root_entry in root_objects:
-                        root_objects.append(root_entry)
+                    if pdf['Body']['Trailers'][i]['Value'].has_key('Root'):
+                        root_entry = pdf['Body']['Trailers'][i]['Value']['Root']['Value'].replace(' R', '')
+                        if not root_entry in root_objects:
+                            root_objects.append(root_entry)
 
             if pdf['Body'].has_key('Start XRef Entries'):
                 xref_entries = []

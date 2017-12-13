@@ -1,31 +1,30 @@
-#from distutils.core import setup
-
 try:
     from setuptools import setup
 except:
     from distutils.core import setup
 
-from os import path
-#from codecs import open
+import os
 
-here = path.abspath(path.dirname(__file__))
 
-#with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
-#    long_description = f.read()
+here = os.path.abspath(os.path.dirname(__file__))
 
-long_description = open(path.join(here, 'README.rst'), 'rt').read()
+long_description = open(os.path.join(here, 'README.rst'), 'rt').read()
 
 setup(
     name = 'pydf2json',
-    version = '2.0.1.dev1',
-    packages=['pydf2json'],
+    version = '2.0.8',
+    packages=['pydf2json', 'pydf2json.scripts'],
     url = 'https://github.com/xamiel/pydf2json',
     license = 'GPL-3.0',
     author = 'Shane King',
     author_email = 'kinagling@meatchicken.net',
     description = 'PDF analysis. Convert contents of PDF to a JSON-style python dictionary.',
     long_description = long_description,
-    scripts = ['pydf.py'],
+    entry_points = {
+        'console_scripts': [
+            'pydf.py = pydf2json.scripts.pydf:main'
+        ]
+    },
     python_requires = '>=2.6, <3',
     keywords = ['pdf', 'pydf2json', 'pdf analysis'],
     classifiers = [
