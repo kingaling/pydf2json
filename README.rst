@@ -52,6 +52,11 @@ See: `LaikaBOSS <https://github.com/lmco/laikaboss>`_ developed by Lockheed Mart
 
 Recent Activity
 ---------------
+20171228 - Added decryption capabilities
+    - Standard security handler Version 4
+        - Tested code on CFM methods V2 and AESV2 (RC4 and AES respectively)
+    - Code will exit upon discovering encryption if pycrypto modules have not been loaded
+        - So please do 'pip install pycrypto'
 
 20171128 - Major rewrite of some core functionality
 	- pydf2json now returns a tuple

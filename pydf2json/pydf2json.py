@@ -3,11 +3,19 @@ import zlib
 import hashlib
 import random
 import os
+import sys
+import struct
 from tempfile import gettempdir
 from platform import system as platform_sys
 
+# We need this for AES decryption. If I get bored, I may reinvent the wheel at a later date after reading the NIST docs.
+try:
+    from Crypto.Cipher import AES
+except Exception as e:
+    pass
 
-__version__ = ('2.0.8')
+
+__version__ = ('2.1.0')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -53,6 +61,13 @@ class PyDF2JSON(object):
     # Keeping track of errors
     __error_list = []
 
+    # is doc encrypted?
+    __is_crypted = False
+    __crypt_handler_info = {}
+    __crypt_handler_info['o_keys'] = {}
+    __crypt_handler_info['o_ignore'] = []
+    __crypt_handler_info['o_ignore'].append('NO_DECRYPT')
+
     # Malware Index:
     # Each index has a max value of 0xFF (255)
 
@@ -72,6 +87,8 @@ class PyDF2JSON(object):
     def __error_control(self, etype, message, misc=''):
         if re.match('SpecViolation', etype):
             raise SpecViolation('SpecViolation' + '(' + message + ' (' + misc + ')' + ')')
+        else:
+            raise Exception('Exception' + '(' + message + ' (' + misc + ')' + ')')
 
 
     def GetPDF(self, x):
@@ -111,6 +128,23 @@ class PyDF2JSON(object):
             s_offset = PDF['Header']['Comment']['Length'] + PDF['Header']['Comment']['Offset'] + 1
         else:
             s_offset = PDF['Header']['Version']['Length'] + PDF['Header']['Version']['Offset'] + 1
+
+        # Check for encryption
+        # If found set global file key
+        # Inside __body_scan() we're going to want to decrypt literal strings as they occur
+        # That means __i_object_def_parse and __assemble_object_structure need to have the current object number passed to them
+        # Or... in __body_scan, everytime I start a new object, I'll calculate an object key that can be read globally
+        try:
+            self.__get_encryption_handler(x)
+        except Exception as e:
+            raise e
+
+        if self.__is_crypted:
+            if not 'Crypto.Cipher.AES' in sys.modules:
+                print '\nDocument is encrypted.'
+                print 'You need to install pycrypto for proper analysis'
+                print '\n\tpip install pycrypto\n'
+                exit()
 
         # Proceed with PDF body processing
         try:
@@ -822,7 +856,13 @@ class PyDF2JSON(object):
                             cur_decoder = ''
                         # Send to decoder now...
                         try:
-                            cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder)
+                            if i[obj_name]['Value'].has_key('Type'):
+                                if not i[obj_name]['Value']['Type']['Value'] == 'XRef':
+                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name)
+                                else:
+                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, 'NO_DECRYPT')
+                            else:
+                                cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name)
                         except SpecViolation as e:
                             self.__error_control(e.__repr__(), e.message, obj_name)
                         except Exception as e:
@@ -932,7 +972,7 @@ class PyDF2JSON(object):
         return stream_type
 
 
-    def __filter_parse(self, my_stream, filter, decodeparms):
+    def __filter_parse(self, my_stream, filter, decodeparms, cur_obj):
         ignore_filters = {
             'DCTDecode',
             'CCITTFaxDecode'
@@ -949,6 +989,10 @@ class PyDF2JSON(object):
             'JPXDecode',
             'Crypt'
         }
+
+        if self.__is_crypted:
+            if not cur_obj in self.__crypt_handler_info['o_ignore']:
+                my_stream = self.__decrypt(my_stream, 'stream', cur_obj)
 
         new_stream = my_stream
 
@@ -1117,7 +1161,7 @@ class PyDF2JSON(object):
             else: # Last entry
                 curr_obj = objects[new_obj_stream[i]['Offset']:]
             curr_obj += ' endobj'
-            i_obj_data = self.__i_object_def_parse(curr_obj, 0, 'obj')
+            i_obj_data = self.__i_object_def_parse(curr_obj, 0, 'obj', 'NO_DECRYPT')
             final_obj_stream['Indirect Objects'][curr_i_object] = {}
             if not i_obj_data[0] == '':
                 final_obj_stream['Indirect Objects'][curr_i_object]['Value'] = i_obj_data[0]['Value']
@@ -1305,13 +1349,15 @@ class PyDF2JSON(object):
                     cur_val['Offset'] = char_loc
                     mal_index += s_object[2]
                     self.__update_mal_index(mal_index, 7)
+                    if self.__is_crypted:
+                        self.__crypt_handler_info['o_keys'][cur_obj] = self.__gen_obj_key(self.__crypt_handler_info['file_key'], cur_obj)
                     if s_object[0] == 'obj': # We have a valid indirect object
                         c += search_end
                         if not body.has_key('Indirect Objects'):
                             body['Indirect Objects'] = []
                         index = len(body['Indirect Objects'])
                         # Since we have a valid indirect object identifier, parse the indirect object definition.
-                        ret = self.__i_object_def_parse(x, c, 'obj')
+                        ret = self.__i_object_def_parse(x, c, 'obj', cur_obj)
                         c = ret[1]
                         # Check for obfuscation in named objects!
                         if len(ret[0]) > 0:
@@ -1390,7 +1436,7 @@ class PyDF2JSON(object):
                 c += 7
                 char_loc = self.__eol_scan(x, c)
                 # A trailer keyword is follwed by a dictionary. Process the dict just like an indirect object dict.
-                ret = self.__i_object_def_parse(x, c, 'trailer')
+                ret = self.__i_object_def_parse(x, c, 'trailer', 'trailer')
                 c = ret[1]
                 current_position = c
                 # Check for obfuscation in named objects!
@@ -1515,7 +1561,7 @@ class PyDF2JSON(object):
         return
 
 
-    def __i_object_def_parse(self, x_str, s_point, o_type):
+    def __i_object_def_parse(self, x_str, s_point, o_type, cur_obj):
         def __point_check(arr, point):
             for i in arr:
                 if point < i['Offset']:
@@ -1857,7 +1903,7 @@ class PyDF2JSON(object):
             return list_points
 
 
-        def __assemble_object_structure(datas, object_points, data_type = 'Value', eod = '', position = 0):
+        def __assemble_object_structure(datas, object_points, cur_obj, data_type = 'Value', eod = '', position = 0):
             def point_type(object_points, point):
                 for i in object_points:
                     if i['Offset'] == point:
@@ -1924,18 +1970,21 @@ class PyDF2JSON(object):
                         k_type = 'Literal String'
                         k_val = datas[pos + 1:p_type[1]]
                         pos = p_type[1] + 1
+                        if self.__is_crypted:
+                            if not cur_obj in self.__crypt_handler_info['o_ignore']:
+                                k_val = self.__decrypt(k_val.encode('hex'), k_type, cur_obj)
 
                     if p_type[0] == 'Dict':
                         k_type = 'Dictionary'
                         pos += 2
-                        ret = __assemble_object_structure(datas, object_points, 'Dict', p_type[1] + 1, pos)
+                        ret = __assemble_object_structure(datas, object_points, cur_obj, 'Dict', p_type[1] + 1, pos)
                         k_val = ret
                         pos = p_type[1] + 1
 
                     if p_type[0] == 'Array':
                         k_type = 'Array'
                         pos += 1
-                        ret = __assemble_object_structure(datas, object_points, 'Array', p_type[1] + 1, pos)
+                        ret = __assemble_object_structure(datas, object_points, cur_obj, 'Array', p_type[1] + 1, pos)
                         pos = p_type[1] + 1
                         k_val = ret
 
@@ -1966,11 +2015,14 @@ class PyDF2JSON(object):
                         v_val = datas[pos + 1:p_type[1]]
                         pos = p_type[1] + 1
                         key = True
+                        if self.__is_crypted:
+                            if not cur_obj in self.__crypt_handler_info['o_ignore']:
+                                v_val = self.__decrypt(v_val.encode('hex'), v_type, cur_obj)
 
                     if p_type[0] == 'Dict':
                         v_type = 'Dictionary'
                         pos += 2
-                        ret = __assemble_object_structure(datas, object_points, 'Dict', p_type[1] + 1, pos)
+                        ret = __assemble_object_structure(datas, object_points, cur_obj, 'Dict', p_type[1] + 1, pos)
                         v_val = ret
                         pos = p_type[1] + 1
                         key = True
@@ -2000,7 +2052,7 @@ class PyDF2JSON(object):
                     if p_type[0] == 'Array':
                         v_type = 'Array'
                         pos += 1
-                        ret = __assemble_object_structure(datas, object_points, 'Array', p_type[1] + 1, pos)
+                        ret = __assemble_object_structure(datas, object_points, cur_obj, 'Array', p_type[1] + 1, pos)
                         pos = p_type[1] + 1
                         v_val = ret
                         key = True
@@ -2008,7 +2060,7 @@ class PyDF2JSON(object):
                     if pos >= end:
                         break
 
-                if len(k_val) > 0 and len(v_val) > 0:
+                if len(k_val) > 0 and len(v_val) > 0 or type(v_val) == list:
                     temp_dict[k_val] = {'Value Type': v_type, 'Value': v_val}
 
             if data_type == 'Dict':
@@ -2050,7 +2102,7 @@ class PyDF2JSON(object):
         x = __object_search(def_obj_data)
         if o_type == 'trailer':
             def_obj_data = def_obj_data[0:x[0]['Length']]
-        y = __assemble_object_structure(def_obj_data, x)
+        y = __assemble_object_structure(def_obj_data, x, cur_obj)
         return y, (def_end + c)
 
 
@@ -2188,3 +2240,414 @@ class PyDF2JSON(object):
         chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
         file_name = "".join(random.sample(chars, 16))
         return file_name
+
+
+    def __get_encryption_handler(self, x):
+        xref_offsets = []
+        xref_tables = []
+        trailers = {}
+        enc_dict = []
+        trailers['Indirect Objects'] = []
+        trailers['Trailers'] = []
+        sxref_count = len(re.findall('startxref', x))
+        if sxref_count == 0:
+            self.__error_control('SpecViolation', 'startxref entry is missing')
+        pos = 0
+        for i in range(0, sxref_count):
+            x_start = re.search('startxref', x[pos:]).start() + pos
+            pos = (x_start + 9)
+            char_loc = self.__eol_scan(x, pos)
+            xref_end = re.search('%%EOF', x[pos:]).start() + pos
+            xref_offset = x[char_loc:xref_end]
+            pos = xref_end
+            while True:
+                if re.match('\s', xref_offset):
+                    xref_offset = xref_offset[1:]
+                else:
+                    if re.search('\s$', xref_offset):
+                        xref_offset = xref_offset[:-1]
+                    else:
+                        break
+            xref_offsets.append(int(xref_offset))
+        for i in xref_offsets:
+            if not i == 0: # Skip dummy offset for linearized PDFs
+                o_type = None
+                if re.match('\d{1,8}\s\d{1,5}\sobj', x[i:i + 18]):
+                    o_type = 'obj'
+                if re.match('xref', x[i:i + 4]):
+                    o_type = 'xref'
+                if o_type == None:
+                    self.__error_control('SpecViolation', 'startxref offset is misaligned.')
+                if o_type == 'xref':
+                    pos = i + 4
+                    while True:
+                        char_loc = self.__eol_scan(x, pos)
+                        xref_entries = self.__line_scan(x, char_loc)
+                        c = xref_entries[1]
+                        xref_entries = xref_entries[0].split(' ')
+
+                        try:
+                            tmp_xrf_tbl = self.__xref_parse(x, xref_entries, c)
+                        except SpecViolation as e:
+                            self.__error_control(e.__repr__(), e.message, 'xref: offset: ' + str(c))
+                        except Exception as e:
+                            self.__error_control(e.__repr__(), e.message,  'xref: offset: ' + str(c))
+
+                        c = tmp_xrf_tbl[1]
+                        xref_tables.append({'Offset': i})
+                        xref_tables.append(tmp_xrf_tbl[0])
+
+                        tmp_char_loc = self.__eol_scan(x, c)
+                        tmp_perm_str = self.__line_scan(x, tmp_char_loc)
+                        if re.match('trailer', tmp_perm_str[0]): # xref table is complete
+                            trailer_offset = tmp_char_loc
+                            c = tmp_char_loc + 7
+                            char_loc = self.__eol_scan(x, c)
+
+                            ret = self.__i_object_def_parse(x, c, 'trailer', 'trailer')
+                            c = ret[1]
+                            current_position = c
+
+                            try:
+                                deob_ret = self.__named_object_deobfuscate(ret[0])
+                            except Exception as e:
+                                self.__error_control(e.__repr__(), e.message, 'trailer: offset: ' + str(current_position))
+                            if not deob_ret['Value'].has_key('Encrypt'):
+                                break
+                            if not trailers.has_key('XRef Tables'):
+                                trailers['XRef Tables'] = []
+                            deob_ret['Offset'] = trailer_offset
+                            trailers['Trailers'].append(deob_ret)
+                            doc_id = trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value']
+                            trailers['XRef Tables'].append(xref_tables)
+                            break
+                if o_type == 'obj':
+                    index = len(trailers['Indirect Objects'])
+                    # Trailer is in an indirect object which means the xref table is compressed.
+                    # We're gonna have to parse this XRef stream to find the offset of the Encrypt dictionary :/
+                    trailer = re.match('\d{1,8}\s\d{1,5}\sobj', x[i:i + 18]).group()
+                    pos = (i + len(trailer))
+                    s_object = self.__i_object_parse(trailer)
+                    trailer = s_object[1][0].replace(' obj', '')
+                    self.__crypt_handler_info['o_ignore'].append(trailer)
+                    ret_dict = self.__i_object_def_parse(x, pos, 'obj', trailer)
+                    if not ret_dict[0]['Value'].has_key('Encrypt'):
+                        continue # This is not the droid we are looking for
+                    char_loc = self.__eol_scan(x, ret_dict[1])
+                    if re.match('stream', x[char_loc:char_loc + 6]):
+                        char_loc += 6
+                    else:
+                        self.__error_control('Exception', 'Missing \'stream\' entry', trailer)
+                    ret_stream = self.__get_stream_dimensions(x, char_loc)
+                    trailers['Indirect Objects'].append({trailer: ret_dict[0]})
+                    # There should be a /Root entry here btw, just in case we decide to care about that right now. :)
+                    stream_dimensions = {}
+                    if trailers['Indirect Objects'][index][trailer]['Value'].has_key('Length'):
+                        stream_dimensions['Length'] = trailers['Indirect Objects'][index][trailer]['Value']['Length']
+                    else:
+                        self.__error_control('SpecViolation', 'trailer XRef stream is missing \'Length\' value', trailer)
+                    stream_dimensions['Start'] = ret_stream[1]
+                    trailers['Indirect Objects'][index][trailer]['Stream Dimensions'] = stream_dimensions
+                    doc_id = trailers['Indirect Objects'][0][trailer]['Value']['ID']['Value'][0]['Value']
+                    self.__process_streams(x, trailers)
+
+
+        if len(trailers['Indirect Objects']) == 0 and len(trailers['Trailers']) == 0: # We have no Encrypt entries
+            return
+        else:
+            self.__is_crypted = True
+
+        for i in trailers:
+            if i == 'Trailers':
+                for j in range(0, len(trailers[i])):
+                    enc_tmp = trailers[i][j]['Value']['Encrypt']['Value'].replace(' R', '')
+                    enc_dict.append({enc_tmp: 'XRef Tables'})
+                    self.__crypt_handler_info['o_ignore'].append(enc_tmp)
+            if i == 'Indirect Objects':
+                for j in range(0, len(trailers[i])):
+                    for k in trailers[i][j]:
+                        enc_tmp = trailers[i][j][k]['Value']['Encrypt']['Value'].replace(' R', '')
+                        enc_dict.append({enc_tmp: 'XRef Streams'})
+                        self.__crypt_handler_info['o_ignore'].append(enc_tmp)
+
+        # k... we have the object number that contains the encryption dictionary stored in enc_dict now
+
+        for i in enc_dict:
+            offset = [] # Making a list just incase the indirect object we're looking for has been defined more than once
+            i_key = i.keys()[0]
+            i_val = i.values()[0]
+            if i_val == 'XRef Tables':
+                for j in trailers[i_val]:
+                    for k in j[1]:
+                        tmp_offset = int(re.match('\d{10}', k).group())
+                        if re.match(i_key, x[tmp_offset:tmp_offset + 10]): # We have found the offset of our indirect object :)
+                            if not tmp_offset in offset:
+                                offset.append(tmp_offset)
+            if i_val == 'XRef Streams':
+                for j in trailers[i_val]:
+                    for k in j:
+                        if k.has_key('Type'):
+                            if k['Type'] == 'Compressed Object':
+                                continue
+                            tmp_offset = int(re.match('\d{10}', k['Value']).group())
+                            if re.match(i_key, x[tmp_offset:tmp_offset + 10]): # We have found the offset of our indirect object :)
+                                if not tmp_offset in offset:
+                                    offset.append(tmp_offset)
+
+        # The offsets in the offset variable should be where we will find encryption dictionaries
+        for i in offset:
+            pos = i
+            obj = re.match('\d{1,8}\s\d{1,5}\sobj', x[pos:pos + 18]).group()
+            s_object = self.__i_object_parse(obj)
+            pos += len(obj)
+            obj = s_object[1][0].replace(' obj', '')
+            ret_dict = self.__i_object_def_parse(x, pos, 'obj', obj)
+            # ret_dict should be our encryption dictionary :)
+            if not ret_dict[0]['Value'].has_key('Filter'):
+                self.__error_control('SpecViolation', 'Encryption dictionary missing \'Filter\'', obj)
+            if not ret_dict[0]['Value']['Filter']['Value'] == 'Standard':
+                self.__error_control('Exception', 'Unable to decrypt this document with the provided filter', obj)
+            # At this point we have established the filter is standard. Check for existence of other required values now.
+            # I am going to require that V be present even though it is only "strongly" recommended that it be there.
+            # Without it, V defaults to 0 and per the PDF spec: "An algorithm that is undocumented and no longer supported,"
+            # So, in it's absence, I will throw an exception and exit but it is NOT a spec violation.
+            if not ret_dict[0]['Value'].has_key('V'):
+                self.__error_control('Exception', 'V defaults to 0 which is an unsupported algorithm', obj)
+            if not ret_dict[0]['Value'].has_key('R') or \
+                not ret_dict[0]['Value'].has_key('O') or \
+                not ret_dict[0]['Value'].has_key('U') or \
+                not ret_dict[0]['Value'].has_key('P'):
+                self.__error_control('SpecViolation', 'Encryption dictionary missing one or more POUR values', obj)
+            if not ret_dict[0]['Value'].has_key('Length'):
+                self.__crypt_handler_info['key_length'] = 40
+            else:
+                self.__crypt_handler_info['key_length'] = int(ret_dict[0]['Value']['Length']['Value'])
+            # Start setting things...
+            if ret_dict[0]['Value']['V']['Value'] == '0' or \
+                            ret_dict[0]['Value']['V']['Value'] == '3' or \
+                            int(ret_dict[0]['Value']['V']['Value']) > 4:
+                self.__error_control('SpecViolation', 'Document encrypted with an unsupported version number. Aborting analysis.', obj)
+            else:
+                V = int(ret_dict[0]['Value']['V']['Value'])
+            if V == 4:
+                if not ret_dict[0]['Value'].has_key('CF'):
+                    self.__error_control('SpecViolation', 'Encryption dictionary missing V4 CF value', obj)
+                if not ret_dict[0]['Value'].has_key('StmF'):
+                    self.__crypt_handler_info['StmF'] = 'Identity'
+                else:
+                    self.__crypt_handler_info['StmF'] = ret_dict[0]['Value']['StmF']['Value']
+                    if not ret_dict[0]['Value']['CF']['Value'].has_key(self.__crypt_handler_info['StmF']):
+                        self.__error_control('SpecViolation', 'Crypt filter doesn\'t exist', obj)
+                if not ret_dict[0]['Value'].has_key('StrF'):
+                    self.__crypt_handler_info['StrF'] = 'Identity'
+                else:
+                    self.__crypt_handler_info['StrF'] = ret_dict[0]['Value']['StrF']['Value']
+                    if not ret_dict[0]['Value']['CF']['Value'].has_key(self.__crypt_handler_info['StrF']):
+                        self.__error_control('SpecViolation', 'Crypt filter doesn\'t exist', obj)
+                self.__crypt_handler_info['method'] = ret_dict[0]['Value']['CF']['Value']['StdCF']['Value']['CFM']['Value']
+                self.__crypt_handler_info['version'] = V
+                if self.__crypt_handler_info['method'] == 'AESV2':
+                    self.__crypt_handler_info['salted'] = True
+                else:
+                    self.__crypt_handler_info['salted'] = False
+                if ret_dict[0]['Value'].has_key('EncryptMetadata'):
+                    if ret_dict[0]['Value']['EncryptMetadata']['Value'] == 'false':
+                        self.__crypt_handler_info['encrypt_metadata'] = False
+                    else:
+                        self.__crypt_handler_info['encrypt_metadata'] = True
+                else:
+                    self.__crypt_handler_info['encrypt_metadata'] = True
+
+
+            P = struct.pack('<l', int(ret_dict[0]['Value']['P']['Value']))
+            O = ret_dict[0]['Value']['O']['Value'].encode('hex')
+            O = self.__escaped_string_replacement(O)
+            U = ret_dict[0]['Value']['U']['Value'].encode('hex')
+            U = self.__escaped_string_replacement(U)
+            R = int(ret_dict[0]['Value']['R']['Value'])
+            self.__crypt_handler_info['revision'] = R
+
+            # Assume user password is blank. If it isn't, we can't decrypt stuff anyway.
+            # Here's that blank password padding used by Adobe...
+            pad = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
+
+            self.__crypt_handler_info['file_key'] = self.__gen_file_key(pad, O, P, doc_id)
+
+            # Test if file key is valid
+            u_check = self.__confirm_file_key(pad, doc_id, self.__crypt_handler_info['file_key'], R)
+            if not u_check == U[0:32].decode('hex'):
+                print 'Encrypted document requires a password. Aborting analysis.'
+                exit()
+
+        return
+
+
+    def __gen_file_key(self, U, O, P, ID):
+        md = hashlib.md5()
+        md.update(U.decode('hex'))  # Input should have been hex string
+        md.update(O.decode('hex'))  # Input should have been hex string
+        md.update(P)                # Input should have already been decoded into hex value
+        md.update(ID.decode('hex')) # Input should have been hex string
+        if not self.__crypt_handler_info['encrypt_metadata']:
+            md.update('\xff\xff\xff\xff')
+        f_key = md.digest()
+
+        if self.__crypt_handler_info['revision'] >= 3:
+            for i in range(0, 50):
+                md = hashlib.md5()
+                md.update(f_key)
+                f_key = md.digest()
+
+        key_size = self.__crypt_handler_info['key_length'] / 8
+        f_key = f_key[0:key_size]
+        return f_key
+
+
+    def __gen_obj_key(self, f_key, obj):
+        obj = obj.split()
+        o_num = struct.pack('<L', int(obj[0]))[:3]
+        o_gen = struct.pack('<L', int(obj[1]))[:2]
+        salt = struct.pack('>L', 0x73416C54)
+        md = hashlib.md5()
+        md.update(f_key)
+        md.update(o_num)
+        md.update(o_gen)
+        if self.__crypt_handler_info['method'] == 'AESV2':
+            md.update(salt)
+
+        o_key = md.digest()
+
+        return o_key
+
+
+    def __escaped_string_replacement(self, x):
+        new_str = ''
+        skip = False
+        for i in range(0, len(x), ++2):
+            if skip:
+                skip = False
+                continue
+            tmp = x[i:i + 2]
+            if tmp == '5c':
+                esc_seq = tmp + x[i + 2:i + 4]
+                if esc_seq == '5c6e': # \n
+                    new_str += '0a'
+                    skip = True
+                if esc_seq == '5c72': # \r
+                    new_str += '0d'
+                    skip = True
+                if esc_seq == '5c74': # \t
+                    new_str += '09'
+                    skip = True
+                if esc_seq == '5c62': # \b
+                    new_str += '08'
+                    skip = True
+                if esc_seq == '5c66': # \f
+                    new_str += '0c'
+                    skip = True
+                if esc_seq == '5c28': # \(
+                    new_str += '28'
+                    skip = True
+                if esc_seq == '5c29': # \)
+                    new_str += '29'
+                    skip = True
+                if esc_seq == '5c5c': # \\
+                    new_str += '5c'
+                    skip = True
+            else:
+                new_str += tmp
+        return new_str
+
+
+    def __confirm_file_key(self, pad, ID, file_key, revision):
+        md = hashlib.md5()
+        if revision >= 3:
+            md.update(pad.decode('hex'))
+            md.update(ID.decode('hex'))
+
+            digest = md.digest()
+
+            cipher = self.__rc4_crypt(digest, file_key)
+
+            for i in range(0, 19):
+                key = ''
+
+                for j in file_key:
+                    key += (chr(ord(j) ^ (i + 1)))
+
+                cipher = self.__rc4_crypt(cipher, key)
+        else:
+            cipher = self.__rc4_crypt(pad.decode('hex'), file_key)
+            return cipher
+
+        return cipher
+
+
+    def __rc4_crypt(self, data, key ):
+        S = range(256)
+        j = 0
+        out = []
+
+        #KSA Phase
+        for i in range(256):
+            j = (j + S[i] + ord( key[i % len(key)] )) % 256
+            S[i] , S[j] = S[j] , S[i]
+
+        #PRGA Phase
+        i = j = 0
+        for char in data:
+            i = ( i + 1 ) % 256
+            j = ( j + S[i] ) % 256
+            S[i] , S[j] = S[j] , S[i]
+            out.append(chr(ord(char) ^ S[(S[i] + S[j]) % 256]))
+
+        return ''.join(out)
+
+
+    def __decrypt(self, x, data_type, cur_obj):
+        data_is_crypted = False # May seem redundant but it's not. Global encryption may be in effcet but this piece of data may not be encrypted.
+        handler = self.__crypt_handler_info # Didn't feel like keeping having to type 'self' while accessing this
+
+        if data_type == 'Literal String':
+            if handler['version'] == 4:
+                if handler['StrF'] == 'StdCF': # Assume string is encrypted with standard handler
+                    data_is_crypted = True
+                    new_str = self.__escaped_string_replacement(x)
+                else:
+                    return x
+        else:
+            new_str = x
+
+        if data_type == 'stream':
+            if handler['version'] == 4:
+                if handler['StmF'] == 'StdCF': # Assume stream is encrypted with standard handler
+                    data_is_crypted = True
+                else:
+                    return x
+
+        if data_is_crypted:
+            if handler['method'] == 'AESV2':
+                if data_type == 'Literal String':
+                    IV = new_str[0:32].decode('hex')
+                if data_type == 'stream':
+                    IV = new_str[0:16]
+
+                decryptor = AES.new(handler['o_keys'][cur_obj], AES.MODE_CBC, IV)
+
+                if data_type == 'Literal String':
+                    new_str = decryptor.decrypt(new_str[32:].decode('hex'))
+                if data_type == 'stream':
+                    new_str = decryptor.decrypt(new_str[16:])
+
+                pad = ord(new_str[-1:])
+                new_str = new_str[:-pad]
+                return new_str
+
+            if handler['method'] == 'V2':
+                if data_type == 'Literal String':
+                    new_str = self.__rc4_crypt(new_str.decode('hex'), handler['o_keys'][cur_obj])
+                if data_type == 'stream':
+                    new_str = self.__rc4_crypt(new_str, handler['o_keys'][cur_obj])
+                return new_str
+
+        return new_str
