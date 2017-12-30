@@ -2041,7 +2041,7 @@ class PyDF2JSON(object):
 
                     if p_type[0] == 'Hex':
                         v_type = 'Hexidecimal String'
-                        v_val = datas[pos:p_type[1] + 1]
+                        v_val = datas[pos + 1:p_type[1]]
                         pos = p_type[1] + 1
                         key = True
 
@@ -2460,9 +2460,20 @@ class PyDF2JSON(object):
 
 
             P = struct.pack('<l', int(ret_dict[0]['Value']['P']['Value']))
-            O = ret_dict[0]['Value']['O']['Value'].encode('hex')
+            O = None
+            U = None
+            if ret_dict[0]['Value']['O']['Value Type'] == 'Hexidecimal String':
+                O = ret_dict[0]['Value']['O']['Value']
+            if ret_dict[0]['Value']['O']['Value Type'] == 'Literal String':
+                O = ret_dict[0]['Value']['O']['Value'].encode('hex')
+            if ret_dict[0]['Value']['U']['Value Type'] == 'Hexidecimal String':
+                U = ret_dict[0]['Value']['U']['Value']
+            if ret_dict[0]['Value']['U']['Value Type'] == 'Literal String':
+                U = ret_dict[0]['Value']['U']['Value'].encode('hex')
+            if O == None or U == None:
+                print '\nDecryption error: O or U is invalid. Aborting analysis.\n'
+                exit()
             O = self.__escaped_string_replacement(O)
-            U = ret_dict[0]['Value']['U']['Value'].encode('hex')
             U = self.__escaped_string_replacement(U)
             R = int(ret_dict[0]['Value']['R']['Value'])
             self.__crypt_handler_info['revision'] = R
