@@ -1961,6 +1961,9 @@ class PyDF2JSON(object):
                     if p_type[0] == None:
                         pos += 1
 
+                    if p_type[0] == 'Comment':
+                        pos = p_type[1] + 1
+
                     if p_type[0] == 'Hex':
                         k_type = 'Hexidecimal String'
                         k_val = datas[pos + 1:p_type[1]]
@@ -2009,6 +2012,9 @@ class PyDF2JSON(object):
                     p_type = point_type(object_points, pos)
                     if p_type[0] == None:
                         pos += 1
+
+                    if p_type[0] == 'Comment':
+                        pos = p_type[1] + 1
 
                     if p_type[0] == 'String':
                         v_type = 'Literal String'
