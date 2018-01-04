@@ -82,6 +82,13 @@ def main():
         # Parse summary for presentation...
         print 'Summary of PDF attributes:'
         print '--------------------------\n'
+        if summary['Encryption']['enabled']:
+            print '{:<29} {:<32}'.format('Encrypted:', 'True')
+            print '{:<29} {:<32}'.format('Key:', summary['Encryption']['file_key'])
+            print '{:<29} {:<32}'.format('Key Length:', summary['Encryption']['key_length'])
+            print '{:<29} {:<32}\n'.format('Algo:', summary['Encryption']['algorithm'])
+        else:
+            print '{:<20} {:>10}'.format('Encrypted:', 'False')
         print '{:<20} {:>10}'.format('AA:', str(len(summary['Additional Actions'])))
         print '{:<20} {:>10}'.format('AcroForms:', str(summary['AcroForms']))
         print '{:<20} {:>10}'.format('Embedded Files:', str(len(summary['EmbeddedFiles'])))
@@ -125,5 +132,8 @@ def main():
             else:
                 print '{:<21} {:>10}'.format('\nURIs in document:', '0')
 
+        print '\nDocument Hashes:'
+        for i in jsonpdf['Document Hashes']:
+            print '\t{:<10} {:<0}'.format(i, jsonpdf['Document Hashes'][i])
 if __name__ == '__main__':
     main()

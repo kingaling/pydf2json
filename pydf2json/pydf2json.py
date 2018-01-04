@@ -708,6 +708,18 @@ class PyDF2JSON(object):
             __process_js(i)
         js_count = len(js)
 
+        summary['Encryption'] = {}
+        if self.__is_crypted:
+            summary['Encryption']['enabled'] = True
+            summary['Encryption']['file_key'] = self.__crypt_handler_info['file_key'].encode('hex').upper()
+            summary['Encryption']['key_length'] = self.__crypt_handler_info['key_length']
+            if self.__crypt_handler_info['method'] == 'V2' or self.__crypt_handler_info['method'] == 'RC4':
+                summary['Encryption']['algorithm'] = 'RC4'
+            if self.__crypt_handler_info['method'] == 'AESV2':
+                summary['Encryption']['algorithm'] = 'AES'
+
+        else:
+            summary['Encryption']['enabled'] = False
         summary['Additional Actions'] = aa
         summary['Pages'] = page_count
         summary['AcroForms'] = acro_count
@@ -1022,11 +1034,7 @@ class PyDF2JSON(object):
                         # PNG decoding detected
                         new_stream = self.__decoder_png(new_stream, decodeparms)
 
-        if new_stream == '':
-            print 'A decoder returned an empty string. Returning original data instead...'
-            return my_stream
-        else:
-            return new_stream
+        return new_stream
 
 
     def __process_xref_stream(self, obj_stream, values, bacRef):
@@ -1606,7 +1614,11 @@ class PyDF2JSON(object):
                                 b_pos += 1
                                 c -= 1
                             if seq == ')' and not re.search('\\\\\)', top_str[b_pos - 1:b_pos + 1]) == None:
-                                b_pos += 1
+                                if not re.search('\\\\\\\\\)', top_str[b_pos - 2:b_pos + 1]) == None:
+                                    b_pos += 1
+                                    c -= 1
+                                else:
+                                    b_pos += 1
                             if seq == '(' and re.search('\\\\\(', top_str[b_pos - 1:b_pos + 1]) == None:
                                 b_pos += 1
                                 c += 1
@@ -2304,6 +2316,7 @@ class PyDF2JSON(object):
                         xref_tables.append(tmp_xrf_tbl[0])
 
                         tmp_char_loc = self.__eol_scan(x, c)
+                        pos = tmp_char_loc
                         tmp_perm_str = self.__line_scan(x, tmp_char_loc)
                         if re.match('trailer', tmp_perm_str[0]): # xref table is complete
                             trailer_offset = tmp_char_loc
@@ -2451,7 +2464,6 @@ class PyDF2JSON(object):
                     if not ret_dict[0]['Value']['CF']['Value'].has_key(self.__crypt_handler_info['StrF']):
                         self.__error_control('SpecViolation', 'Crypt filter doesn\'t exist', obj)
                 self.__crypt_handler_info['method'] = ret_dict[0]['Value']['CF']['Value']['StdCF']['Value']['CFM']['Value']
-                self.__crypt_handler_info['version'] = V
                 if self.__crypt_handler_info['method'] == 'AESV2':
                     self.__crypt_handler_info['salted'] = True
                 else:
@@ -2483,6 +2495,9 @@ class PyDF2JSON(object):
             U = self.__escaped_string_replacement(U)
             R = int(ret_dict[0]['Value']['R']['Value'])
             self.__crypt_handler_info['revision'] = R
+            self.__crypt_handler_info['version'] = V
+            if not self.__crypt_handler_info.has_key('method'):
+                self.__crypt_handler_info['method'] = 'RC4'
 
             # Assume user password is blank. If it isn't, we can't decrypt stuff anyway.
             # Here's that blank password padding used by Adobe...
@@ -2505,23 +2520,25 @@ class PyDF2JSON(object):
         md.update(O.decode('hex'))  # Input should have been hex string
         md.update(P)                # Input should have already been decoded into hex value
         md.update(ID.decode('hex')) # Input should have been hex string
-        if not self.__crypt_handler_info['encrypt_metadata']:
-            md.update('\xff\xff\xff\xff')
+        key_size = self.__crypt_handler_info['key_length'] / 8
+        if self.__crypt_handler_info['version'] == 4:
+            if not self.__crypt_handler_info['encrypt_metadata']:
+                md.update('\xff\xff\xff\xff')
         f_key = md.digest()
 
         if self.__crypt_handler_info['revision'] >= 3:
             for i in range(0, 50):
                 md = hashlib.md5()
-                md.update(f_key)
+                md.update(f_key[0:key_size])
                 f_key = md.digest()
 
-        key_size = self.__crypt_handler_info['key_length'] / 8
         f_key = f_key[0:key_size]
         return f_key
 
 
     def __gen_obj_key(self, f_key, obj):
         obj = obj.split()
+        key_size = self.__crypt_handler_info['key_length'] / 8
         o_num = struct.pack('<L', int(obj[0]))[:3]
         o_gen = struct.pack('<L', int(obj[1]))[:2]
         salt = struct.pack('>L', 0x73416C54)
@@ -2533,8 +2550,11 @@ class PyDF2JSON(object):
             md.update(salt)
 
         o_key = md.digest()
+        f_key_size = key_size + 5
+        if f_key_size > 16:
+            f_key_size = f_key_size - (f_key_size % 16)
 
-        return o_key
+        return o_key[0:f_key_size]
 
 
     def __escaped_string_replacement(self, x):
@@ -2632,6 +2652,9 @@ class PyDF2JSON(object):
                     new_str = self.__escaped_string_replacement(x)
                 else:
                     return x
+            if handler['version'] <= 3:
+                data_is_crypted = True
+                new_str = self.__escaped_string_replacement(x)
         else:
             new_str = x
 
@@ -2641,6 +2664,8 @@ class PyDF2JSON(object):
                     data_is_crypted = True
                 else:
                     return x
+            if handler['version'] <= 3:
+                data_is_crypted = True
 
         if data_is_crypted:
             if handler['method'] == 'AESV2':
@@ -2660,7 +2685,7 @@ class PyDF2JSON(object):
                 new_str = new_str[:-pad]
                 return new_str
 
-            if handler['method'] == 'V2':
+            if handler['method'] == 'V2' or handler['method'] == 'RC4':
                 if data_type == 'Literal String':
                     new_str = self.__rc4_crypt(new_str.decode('hex'), handler['o_keys'][cur_obj])
                 if data_type == 'stream':
