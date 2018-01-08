@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.0')
+__version__ = ('2.1.1')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -1280,9 +1280,14 @@ class PyDF2JSON(object):
 
 
         num_columns = int(parms['Columns']['Value'])
-        rows = len(my_stream) / (num_columns + 1)
+        if parms.has_key('Colors'):
+            num_colors = int(parms['Colors']['Value'])
+        else:
+            num_colors = 1
+        row_width = (num_columns * num_colors)
+        rows = len(my_stream) / (row_width + 1)
         predictor = ord(my_stream[0])
-        row_1_data = my_stream[1:num_columns + 1]
+        row_1_data = my_stream[1:row_width + 1]
 
         if predictor < 2:
             start_row = 0
@@ -1292,29 +1297,29 @@ class PyDF2JSON(object):
             decoded_data = row_1_data
 
         for row in range(start_row, rows - 1):
-            predictor = ord(my_stream[(row * (num_columns + 1))])
+            predictor = ord(my_stream[(row * (row_width + 1))])
 
             if predictor == 0:
-                decoded_data += algo_0(row_1_data, num_columns)
+                decoded_data += algo_0(row_1_data, row_width)
             if predictor == 1:
-                row_1_data = my_stream[(row * (num_columns + 1)) + 1:(row * (num_columns + 1)) + (num_columns + 1)]
+                row_1_data = my_stream[(row * (row_width + 1)) + 1:(row * (row_width + 1)) + (row_width + 1)]
                 decoded_data += algo_1(row_1_data)
             if predictor == 2:
-                row_1_data = decoded_data[-num_columns:]
-                row_2_data = my_stream[(row * (num_columns + 1)) + 1:(row * (num_columns + 1)) + (num_columns + 1)]
+                row_1_data = decoded_data[-row_width:]
+                row_2_data = my_stream[(row * (row_width + 1)) + 1:(row * (row_width + 1)) + (row_width + 1)]
                 decoded_data += algo_2(row_1_data, row_2_data)
             if predictor == 3:
                 print 'predictor = 3. Oh noes! Exiting...'
                 exit()
-                decoded_data += algo_3(my_stream, num_columns)
+                decoded_data += algo_3(my_stream, row_width)
             if predictor == 4:
                 print 'predictor = 4. Oh noes! Exiting...'
                 exit()
-                decoded_data += algo_4(my_stream, num_columns)
+                decoded_data += algo_4(my_stream, row_width)
             if predictor == 5:
                 print 'predictor = 5. Oh noes! Exiting...'
                 exit()
-                decoded_data += algo_5(my_stream, num_columns)
+                decoded_data += algo_5(my_stream, row_width)
 
         return decoded_data
 
