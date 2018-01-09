@@ -6,7 +6,7 @@ import argparse
 import re
 
 
-__version__ = ('2.1.1')
+__version__ = ('2.1.2')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 

@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.1')
+__version__ = ('2.1.2')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -1374,7 +1374,10 @@ class PyDF2JSON(object):
                         c = ret[1]
                         # Check for obfuscation in named objects!
                         if len(ret[0]) > 0:
-                            deob_ret = self.__named_object_deobfuscate(ret[0])
+                            try:
+                                deob_ret = self.__named_object_deobfuscate(ret[0])
+                            except Exception as e:
+                                self.__error_control(e.__repr__(), e.message,  cur_obj)
                             cur_val['Value Type'] = deob_ret['Value Type']
                             cur_val['Value'] = deob_ret['Value']
                         else:
@@ -2157,7 +2160,11 @@ class PyDF2JSON(object):
             # Now check what's stored in x and make sure it isn't obfuscated...
             while True:
                 if x[c] == '#': # <--- Hex encoding detected!
-                    hex_char = chr(int(x[c + 1: c + 3], 16))
+                    chars = x[c + 1: c + 3]
+                    if len(chars) == 2 and re.match('[a-fA-F0-9]{2}', chars):
+                        hex_char = chr(int(x[c + 1: c + 3], 16))
+                    else:
+                        raise SpecViolation('Invalid chars after \'#\'')
                     if hex_char in normal_chars: # Shouldn't have needed to encode a normal char.
                         mal_index += 1
                     temp_x += hex_char
@@ -2181,12 +2188,16 @@ class PyDF2JSON(object):
                     return data
                 if data['Value Type'] == 'Dictionary':
                     # Check if keys are obfuscated...
+                    new_old_map = {} # Renaming keys while iterating through them causes unpredictable results. Store changes here.
                     for i in data['Value']:
                         try:
                             ret = deobfuscate(i)
                         except Exception as e:
-                            raise SpecViolation('deobfuscate() failed.')
-                        data['Value'][ret] = data['Value'].pop(i)
+                            raise e
+                        new_old_map[i] = ret
+                    for i in new_old_map: # Now implememnt those changes...
+                        if not i == new_old_map[i]:
+                            data['Value'][new_old_map[i]] = data['Value'].pop(i) # Interesting method of renaming keys....
                     # Keys should be deobfuscated. Send the value of each key back into this root function
                     for i in data['Value']:
                         x = self.__named_object_deobfuscate(data['Value'][i])
