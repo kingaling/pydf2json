@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.2')
+__version__ = ('2.1.3')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -383,6 +383,8 @@ class PyDF2JSON(object):
                     sub_type = []
                     uri = []
 
+                    if a['Value Type'] == 'Literal String':
+                        uri.append(a['Value'])
                     if a['Value Type'] == 'Dictionary':
                         if a['Value'].has_key('S'):
                             if a['Value']['S']['Value Type'] == 'Named Object':
@@ -390,6 +392,13 @@ class PyDF2JSON(object):
                         if a['Value'].has_key('URI'):
                             if a['Value']['URI']['Value Type'] == 'Literal String':
                                 uri.append(a['Value']['URI']['Value'])
+                            if a['Value']['URI']['Value Type'] == 'Indirect Reference':
+                                a_ref = a['Value']['URI']['Value'].replace(' R', '')
+                                a_map = self.__map_object(pdf['Body'], omap, a_ref, None, True)
+                                processed_objects.append(a_ref)
+                                for j in a_map:
+                                    for k in range(0, len(a_map[j])):
+                                        temp_sub_type, uri = __get_hyperlink(a_map[j][k]['Value'])
 
                     if a['Value Type'] == 'Indirect Reference':
                         a_ref = a['Value'].replace(' R', '')
