@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.3')
+__version__ = ('2.1.4')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -492,10 +492,23 @@ class PyDF2JSON(object):
             acro_fields = []
             for i in acroforms:
                 if i.has_key('Fields'):
-                    for j in range(0, len(i['Fields']['Value'])):
-                        af_val = i['Fields']['Value'][j]['Value'].replace(' R', '')
-                        if not af_val in acro_fields:
-                            acro_fields.append(af_val)
+                    if i['Fields']['Value Type'] == 'Array':
+                        for j in range(0, len(i['Fields']['Value'])):
+                            af_val = i['Fields']['Value'][j]['Value'].replace(' R', '')
+                            if not af_val in acro_fields:
+                                acro_fields.append(af_val)
+                    if i['Fields']['Value Type'] == 'Indirect Reference':
+                        tmp_obj = i['Fields']['Value'].replace(' R', '')
+                        fields_map = self.__map_object(pdf['Body'], omap, tmp_obj, None, True)
+                        for j in fields_map:
+                            for k in range(0, len(fields_map[j])):
+                                if fields_map[j][k]['Value'].has_key('Value Type'):
+                                    if fields_map[j][k]['Value']['Value Type'] == 'Array':
+                                        for l in fields_map[j][k]['Value']['Value']:
+                                            af_val = l['Value'].replace(' R', '')
+                                            if not af_val in acro_fields:
+                                                acro_fields.append(af_val)
+
 
             if len(acro_fields) == 0:
                 self.__error_control('SpecViolation', 'Acroform missing \'Fields\' entry.')
