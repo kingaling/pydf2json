@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.4')
+__version__ = ('2.1.5')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -399,6 +399,10 @@ class PyDF2JSON(object):
                                 for j in a_map:
                                     for k in range(0, len(a_map[j])):
                                         temp_sub_type, uri = __get_hyperlink(a_map[j][k]['Value'])
+                                        if len(uri) == 1:
+                                            summary['Link Annotations'].append({'Link': uri[0], 'Dimensions': rect_area})
+                                            temp_sub_type = ''
+                                            uri = []
 
                     if a['Value Type'] == 'Indirect Reference':
                         a_ref = a['Value'].replace(' R', '')
@@ -407,6 +411,10 @@ class PyDF2JSON(object):
                         for j in a_map:
                             for k in range(0, len(a_map[j])):
                                 sub_type, uri = __get_hyperlink(a_map[j][k]['Value'])
+                                if len(uri) == 1:
+                                    summary['Link Annotations'].append({'Link': uri[0], 'Dimensions': rect_area})
+                                    sub_type = []
+                                    uri = []
                     return sub_type, uri
 
 
@@ -2115,6 +2123,8 @@ class PyDF2JSON(object):
                 return temp_dict
 
             if data_type == 'Array':
+                if len(temp_dict) > 0 and len(x) == 0:
+                    x.append(temp_dict)
                 return x
 
             if data_type == 'Value': # We might be in root call of this function
