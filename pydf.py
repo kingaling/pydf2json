@@ -6,7 +6,7 @@ import argparse
 import re
 
 
-__version__ = ('2.1.5')
+__version__ = ('2.1.6')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -16,10 +16,13 @@ def argbuilder():
     parser.add_argument("-d", help="Dump all stream objects to a specified location", dest="location", metavar="LOCATION")
     parser.add_argument("--no_summary",help="Showing the summary is the default. This disables it.", action="store_true")
     parser.add_argument("--show_json",help="Outputs pdf in json to the screen. Disabled by default.", action="store_true")
-    parser.add_argument("--show_ttf", help="* Include true type fonts in json output", action="store_true")
-    parser.add_argument("--show_bitmap", help="* Include bitmaps in json output", action="store_true")
-    parser.add_argument("--show_pics", help="* Include pictures in json output", action="store_true")
-    parser.add_argument("--show_embedded_files", help="* Include embedded files in json output", action="store_true")
+    jsongrp = parser.add_argument_group("json options")
+    jsongrp.add_argument("--show_ttf", help="* Include true type fonts in json output", action="store_true")
+    jsongrp.add_argument("--show_bitmap", help="* Include bitmaps in json output", action="store_true")
+    jsongrp.add_argument("--show_pics", help="* Include pictures in json output", action="store_true")
+    jsongrp.add_argument("--show_embedded_files", help="* Include embedded files in json output", action="store_true")
+    jsongrp.add_argument("--show_arbitrary", help="* Include arbitrary data in json output", action="store_true")
+    jsongrp.add_argument("--show_all", help="* Include all streams including arbitrary data in json", action="store_true")
     args = parser.parse_args()
     return args
 
@@ -46,13 +49,15 @@ def main():
             exit()
 
     # Check starred options:
-    if args.show_bitmap:
+    if args.show_bitmap or args.show_all:
         pdf_object.show_bitmaps = True
-    if args.show_embedded_files:
+    if args.show_embedded_files or args.show_all:
         pdf_object.show_embedded_files = True
-    if args.show_pics:
+    if args.show_pics or args.show_all:
         pdf_object.show_pics = True
-    if args.show_ttf:
+    if args.show_arbitrary or args.show_all:
+        pdf_object.show_arbitrary = True
+    if args.show_ttf or args.show_all:
         pdf_object.show_ttf = True
 
     # JSON'ify the pdf! :)
@@ -75,9 +80,6 @@ def main():
     if args.show_json:
         print json.dumps(jsonpdf, ensure_ascii=False, indent=4)
 
-    # Things I gotta do:
-    # Error checking everywhere
-
     if not args.no_summary:
         # Parse summary for presentation...
         print 'Summary of PDF attributes:'
@@ -89,7 +91,19 @@ def main():
             print '{:<29} {:<32}\n'.format('Algo:', summary['Encryption']['algorithm'])
         else:
             print '{:<20} {:>10}'.format('Encrypted:', 'False')
-        print '{:<20} {:>10}'.format('AA:', str(len(summary['Additional Actions'])))
+        aa_num = 0
+        aa_sections = {}
+        for i in summary['Additional Actions']:
+            i_len = len(summary['Additional Actions'][i])
+            aa_num += i_len
+            if i_len > 0:
+                for j in summary['Additional Actions'][i]:
+                    if not aa_sections.has_key(i):
+                        aa_sections[i] = []
+                    aa_sections[i].append(j)
+
+        #print '{:<20} {:>10}'.format('AA:', str(len(summary['Additional Actions'])))
+        print '{:<20} {:>10}'.format('Additional Actions:', str(aa_num))
         print '{:<20} {:>10}'.format('AcroForms:', str(summary['AcroForms']))
         print '{:<20} {:>10}'.format('Embedded Files:', str(len(summary['EmbeddedFiles'])))
         print '{:<20} {:>10}'.format('JS:', summary['JS'])
@@ -97,6 +111,11 @@ def main():
         print '{:<20} {:>10}'.format('Object Streams:', str(summary['Object Streams']))
         print '{:<20} {:>10}'.format('OpenActions:', str(summary['OpenActions']))
         print '{:<10} {:>20}'.format('Pages:', str(summary['Pages']))
+
+        if len(summary['Arbitrary Data']) > 0:
+            print '\nArbitrary data detected (data outside any known PDF object)'
+            for i in summary['Arbitrary Data']:
+                print '\t' + str(i)
 
         if len(summary['AcroForm Actions']) > 0:
             print '\nAcroForm Actions'
@@ -131,6 +150,20 @@ def main():
                     print '\t' + i
             else:
                 print '{:<21} {:>10}'.format('\nURIs in document:', '0')
+
+        if aa_num > 0:
+            print '\nJavaScript detected in Additional Actions (AA):'
+            for i in aa_sections:
+                if i == 'acro_adds':
+                    print '\tAcroform Fields AA:'
+                if i == 'annot_adds':
+                    print '\tAnnotations AA:'
+                if i == 'page_adds':
+                    print '\tPage AA:'
+                if i == 'cat_adds':
+                    print '\tCatalog AA:'
+                for j in aa_sections[i]:
+                        print '\t\t', j
 
         print '\nDocument Hashes:'
         for i in jsonpdf['Document Hashes']:

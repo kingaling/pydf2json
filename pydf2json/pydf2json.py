@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.5')
+__version__ = ('2.1.6')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -39,6 +39,9 @@ class PyDF2JSON(object):
 
     # show_embedded_files: Pretty much all other types of files. Default is False.
     show_embedded_files = False
+
+    # show_arbitrary: Arbitrary data found outside of any object. Default is False.
+    show_arbitrary = False
 
     # dump_streams: Dump streams to a temp location. Using this for LaikaBOSS objects.
     dump_streams = False
@@ -93,6 +96,7 @@ class PyDF2JSON(object):
 
     def GetPDF(self, x):
         PDF = {}
+        summary = {}
         PDF['Size'] = len(x)
 
         if self.dump_streams:
@@ -151,6 +155,7 @@ class PyDF2JSON(object):
             PDF['Body'] = self.__body_scan(x, s_offset)
         except Exception as e:
             raise e
+
         #PDF['Body'] = self.__body_scan(x, s_offset) # Debugging...
         # The above line got all indirect objects, trailers, xref tables etc
         # and preserved the position and length of all streams.
@@ -169,7 +174,6 @@ class PyDF2JSON(object):
         self.__assemble_map(PDF['Body'], omap)
 
         # Assemble a summary of things.
-        summary = {}
         try:
             ret = self.__get_summary(PDF, summary, omap)
         except Exception as e:
@@ -186,13 +190,31 @@ class PyDF2JSON(object):
         return PDF, omap, summary
 
 
+    def __process_arbitrary_data(self, arb):
+        arb_data = arb
+        try:
+            c_len = len(arb[:24])
+        except:
+            c_len = len(arb)
+        arb_len = len(arb)
+        # Check for some basic data obfuscation:
+        # Check 1st 24 chars for 6 bytes in a row of '\x00' style byte encoding
+        if re.match('(\\\\x[0-9a-z]{2}){6}', arb[:c_len], re.IGNORECASE):
+            arb_data = arb.replace('\\x', '')
+            arb_data = arb_data.replace('\x00', '')
+            arb_data = arb_data.replace('\x09', '')
+            arb_data = arb_data.replace('\x0A', '')
+            arb_data = arb_data.replace('\x0D', '')
+            arb_data = arb_data.replace('\x20', '')
+            arb_data = arb_data.decode('hex')
+
+        arb_type = self.__identify_stream(arb_data)
+        if arb_type == '':
+            arb_type = 'Unknown'
+        return arb_type, arb_data
+
+
     def __get_summary(self, pdf, summary, omap):
-        action_types = {
-            'SubmitForm': 'F',
-            'Launch': 'F required if no Win, Win Requires a sub F',
-            'URI': 'URI',
-            'JavaScript': 'JS'
-        }
         processed_objects = []
 
         def __find_root():
@@ -261,11 +283,77 @@ class PyDF2JSON(object):
 
 
         def __get_catalog_data():
+            def __catalog_additional_actions(c_actions):
+                cat_adds = {}
+                if type(c_actions) == list:
+                    for i in c_actions:
+                        __catalog_additional_actions(i)
+                    return
+                if type(c_actions) == dict:
+                    if c_actions.has_key('WC'):
+                        if c_actions['WC']['Value Type'] == 'Indirect Reference':
+                            wc_temp = c_actions['WC']['Value'].replace(' R', '')
+                            wc_map = self.__map_object(pdf['Body'], omap, wc_temp, None, True)
+                            for i in wc_map:
+                                for j in range(0, len(wc_map[i])):
+                                    wc_val = __catalog_additional_actions(wc_map[i][j]['Value']['Value'])
+                                    cat_adds['WC'] = {wc_temp: wc_val}
+                        if c_actions['WC']['Value Type'] == 'Dictionary':
+                            __catalog_additional_actions(c_actions['WC']['Value'])
+                    if c_actions.has_key('WS'):
+                        if c_actions['WS']['Value Type'] == 'Indirect Reference':
+                            ws_temp = c_actions['WS']['Value'].replace(' R', '')
+                            ws_map = self.__map_object(pdf['Body'], omap, ws_temp, None, True)
+                            for i in ws_map:
+                                for j in range(0, len(ws_map[i])):
+                                    ws_val = __catalog_additional_actions(ws_map[i][j]['Value']['Value'])
+                                    cat_adds['WS'] = {ws_temp: ws_val}
+                        if c_actions['WS']['Value Type'] == 'Dictionary':
+                            __catalog_additional_actions(c_actions['WS']['Value'])
+                    if c_actions.has_key('DS'):
+                        if c_actions['DS']['Value Type'] == 'Indirect Reference':
+                            ds_temp = c_actions['DS']['Value'].replace(' R', '')
+                            ds_map = self.__map_object(pdf['Body'], omap, ds_temp, None, True)
+                            for i in ds_map:
+                                for j in range(0, len(ds_map[i])):
+                                    ds_val = __catalog_additional_actions(ds_map[i][j]['Value']['Value'])
+                                    cat_adds['DS'] = {ds_temp: ds_val}
+                        if c_actions['DS']['Value Type'] == 'Dictionary':
+                            __catalog_additional_actions(c_actions['DS']['Value'])
+                    if c_actions.has_key('WP'):
+                        if c_actions['WP']['Value Type'] == 'Indirect Reference':
+                            wp_temp = c_actions['WP']['Value'].replace(' R', '')
+                            wp_map = self.__map_object(pdf['Body'], omap, wp_temp, None, True)
+                            for i in wp_map:
+                                for j in range(0, len(wp_map[i])):
+                                    wp_val = __catalog_additional_actions(wp_map[i][j]['Value']['Value'])
+                                    cat_adds['WP'] = {wp_temp: wp_val}
+                        if c_actions['WP']['Value Type'] == 'Dictionary':
+                            __catalog_additional_actions(c_actions['WP']['Value'])
+                    if c_actions.has_key('DP'):
+                        if c_actions['DP']['Value Type'] == 'Indirect Reference':
+                            dp_temp = c_actions['DP']['Value'].replace(' R', '')
+                            dp_map = self.__map_object(pdf['Body'], omap, dp_temp, None, True)
+                            for i in dp_map:
+                                for j in range(0, len(dp_map[i])):
+                                    dp_val = __catalog_additional_actions(dp_map[i][j]['Value']['Value'])
+                                    cat_adds['DP'] = {dp_temp: dp_val}
+                        if c_actions['DP']['Value Type'] == 'Dictionary':
+                            __catalog_additional_actions(c_actions['DP']['Value'])
+                    if c_actions.has_key('JS'):
+                        js.append(c_actions['JS']['Value'])
+                        if c_actions['JS']['Value Type'] == 'Indirect Reference':
+                            js_temp = c_actions['JS']['Value'].replace(' R', '')
+                            __catalog_additional_actions(js_temp)
+                        if c_actions['JS']['Value Type'] == 'Literal String':
+                            return c_actions['JS']['Value']
+                return cat_adds
+
             # Make sure we're dealing with objects of type 'catalog'
             io_indexes = []
             os_indexes = []
 
-            aa = []
+            cat_a = []
             acroforms = []
             names = []
             openactions = []
@@ -313,11 +401,14 @@ class PyDF2JSON(object):
                                 uris.append(pdf['Body'][j][cat_index][i]['Value']['URI']['Value'])
 
                             if pdf['Body'][j][cat_index][i]['Value'].has_key('AA'):
-                                aa.append(pdf['Body'][j][cat_index][i]['Value']['AA']['Value'])
+                                #cat_a.append(pdf['Body'][j][cat_index][i]['Value']['AA']['Value'])
+                                acts = __catalog_additional_actions(pdf['Body'][j][cat_index][i]['Value']['AA']['Value'])
+                                aa['cat_adds'].append({i: acts})
                         else:
                             self.__error_control('SpecViolation', 'Required \'Catalog\' entry missing.')
 
-            return pages, names, outlines, openactions, acroforms, uris, aa
+            #return pages, names, outlines, openactions, acroforms, uris, cat_a
+            return pages, names, outlines, openactions, acroforms, uris
 
 
         def __get_pagecount():
@@ -348,7 +439,161 @@ class PyDF2JSON(object):
 
 
         def __process_pages(obj):
+            def __page_additional_actions(p_actions):
+                page_adds = {}
+                if type(p_actions) == list:
+                    for i in p_actions:
+                        __page_additional_actions(i)
+                    return
+                if type(p_actions) == dict:
+                    if p_actions.has_key('O'):
+                        if p_actions['O']['Value Type'] == 'Indirect Reference':
+                            o_temp = p_actions['O']['Value'].replace(' R', '')
+                            o_map = self.__map_object(pdf['Body'], omap, o_temp, None, True)
+                            for i in o_map:
+                                for j in range(0, len(o_map[i])):
+                                    o_val = __page_additional_actions(o_map[i][j]['Value']['Value'])
+                                    page_adds['O'] = {o_temp: o_val}
+                        if p_actions['O']['Value Type'] == 'Dictionary':
+                            __page_additional_actions(p_actions['O']['Value'])
+                    if p_actions.has_key('C'):
+                        if p_actions['C']['Value Type'] == 'Indirect Reference':
+                            c_temp = p_actions['C']['Value'].replace(' R', '')
+                            c_map = self.__map_object(pdf['Body'], omap, c_temp, None, True)
+                            for i in c_map:
+                                for j in range(0, len(c_map[i])):
+                                    c_val = __page_additional_actions(c_map[i][j]['Value']['Value'])
+                                    page_adds['C'] = {c_temp: c_val}
+                        if p_actions['C']['Value Type'] == 'Dictionary':
+                            __page_additional_actions(p_actions['C']['Value'])
+                    if p_actions.has_key('JS'):
+                        js.append(p_actions['JS']['Value'])
+                        if p_actions['JS']['Value Type'] == 'Indirect Reference':
+                            js_temp = p_actions['JS']['Value'].replace(' R', '')
+                            __page_additional_actions(js_temp)
+                        if p_actions['JS']['Value Type'] == 'Literal String':
+                            return p_actions['JS']['Value']
+                return page_adds
+
+
             def __process_annots(annots):
+                def __annot_additional_actions(an_actions):
+                    annot_adds = {}
+                    if type(an_actions) == list:
+                        for i in an_actions:
+                            __annot_additional_actions(i)
+                        return
+                    if type(an_actions) == dict:
+                        if an_actions.has_key('E'):
+                            if an_actions['E']['Value Type'] == 'Indirect Reference':
+                                e_temp = an_actions['E']['Value'].replace(' R', '')
+                                e_map = self.__map_object(pdf['Body'], omap, e_temp, None, True)
+                                for i in e_map:
+                                    for j in range(0, len(e_map[i])):
+                                        e_val = __annot_additional_actions(e_map[i][j]['Value']['Value'])
+                                        annot_adds['E'] = {e_temp: e_val}
+                            if an_actions['E']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['E']['Value'])
+                        if an_actions.has_key('X'):
+                            if an_actions['X']['Value Type'] == 'Indirect Reference':
+                                x_temp = an_actions['X']['Value'].replace(' R', '')
+                                x_map = self.__map_object(pdf['Body'], omap, x_temp, None, True)
+                                for i in x_map:
+                                    for j in range(0, len(x_map[i])):
+                                        x_val = __annot_additional_actions(x_map[i][j]['Value']['Value'])
+                                        annot_adds['X'] = {x_temp: x_val}
+                            if an_actions['X']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['X']['Value'])
+                        if an_actions.has_key('D'):
+                            if an_actions['D']['Value Type'] == 'Indirect Reference':
+                                d_temp = an_actions['D']['Value'].replace(' R', '')
+                                d_map = self.__map_object(pdf['Body'], omap, d_temp, None, True)
+                                for i in d_map:
+                                    for j in range(0, len(d_map[i])):
+                                        d_val = __annot_additional_actions(d_map[i][j]['Value']['Value'])
+                                        annot_adds['D'] = {d_temp: d_val}
+                            if an_actions['D']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['D']['Value'])
+                        if an_actions.has_key('U'):
+                            if an_actions['U']['Value Type'] == 'Indirect Reference':
+                                u_temp = an_actions['U']['Value'].replace(' R', '')
+                                u_map = self.__map_object(pdf['Body'], omap, u_temp, None, True)
+                                for i in u_map:
+                                    for j in range(0, len(u_map[i])):
+                                        u_val = __annot_additional_actions(u_map[i][j]['Value']['Value'])
+                                        annot_adds['U'] = {u_temp: u_val}
+                            if an_actions['U']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['U']['Value'])
+                        if an_actions.has_key('Fo'):
+                            if an_actions['Fo']['Value Type'] == 'Indirect Reference':
+                                fo_temp = an_actions['Fo']['Value'].replace(' R', '')
+                                fo_map = self.__map_object(pdf['Body'], omap, fo_temp, None, True)
+                                for i in fo_map:
+                                    for j in range(0, len(fo_map[i])):
+                                        fo_val = __annot_additional_actions(fo_map[i][j]['Value']['Value'])
+                                        annot_adds['Fo'] = {fo_temp: fo_val}
+                            if an_actions['Fo']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['Fo']['Value'])
+                        if an_actions.has_key('Bl'):
+                            if an_actions['Bl']['Value Type'] == 'Indirect Reference':
+                                bl_temp = an_actions['Bl']['Value'].replace(' R', '')
+                                bl_map = self.__map_object(pdf['Body'], omap, bl_temp, None, True)
+                                for i in bl_map:
+                                    for j in range(0, len(bl_map[i])):
+                                        bl_val = __annot_additional_actions(bl_map[i][j]['Value']['Value'])
+                                        annot_adds['Bl'] = {bl_temp: bl_val}
+                            if an_actions['Bl']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['Bl']['Value'])
+                        if an_actions.has_key('PO'):
+                            if an_actions['PO']['Value Type'] == 'Indirect Reference':
+                                po_temp = an_actions['PO']['Value'].replace(' R', '')
+                                po_map = self.__map_object(pdf['Body'], omap, po_temp, None, True)
+                                for i in po_map:
+                                    for j in range(0, len(po_map[i])):
+                                        po_val = __annot_additional_actions(po_map[i][j]['Value']['Value'])
+                                        annot_adds['PO'] = {po_temp: po_val}
+                            if an_actions['PO']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['PO']['Value'])
+                        if an_actions.has_key('PC'):
+                            if an_actions['PC']['Value Type'] == 'Indirect Reference':
+                                pc_temp = an_actions['PC']['Value'].replace(' R', '')
+                                pc_map = self.__map_object(pdf['Body'], omap, pc_temp, None, True)
+                                for i in pc_map:
+                                    for j in range(0, len(pc_map[i])):
+                                        pc_val = __annot_additional_actions(pc_map[i][j]['Value']['Value'])
+                                        annot_adds['PC'] = {pc_temp: pc_val}
+                            if an_actions['PC']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['PC']['Value'])
+                        if an_actions.has_key('PV'):
+                            if an_actions['PV']['Value Type'] == 'Indirect Reference':
+                                pv_temp = an_actions['PV']['Value'].replace(' R', '')
+                                pv_map = self.__map_object(pdf['Body'], omap, pv_temp, None, True)
+                                for i in pv_map:
+                                    for j in range(0, len(pv_map[i])):
+                                        pv_val = __annot_additional_actions(pv_map[i][j]['Value']['Value'])
+                                        annot_adds['PV'] = {pv_temp: pv_val}
+                            if an_actions['PV']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['PV']['Value'])
+                        if an_actions.has_key('PI'):
+                            if an_actions['PI']['Value Type'] == 'Indirect Reference':
+                                pi_temp = an_actions['PI']['Value'].replace(' R', '')
+                                pi_map = self.__map_object(pdf['Body'], omap, pi_temp, None, True)
+                                for i in pi_map:
+                                    for j in range(0, len(pi_map[i])):
+                                        pi_val = __annot_additional_actions(pi_map[i][j]['Value']['Value'])
+                                        annot_adds['PI'] = {pi_temp: pi_val}
+                            if an_actions['PI']['Value Type'] == 'Dictionary':
+                                __annot_additional_actions(an_actions['PI']['Value'])
+                        if an_actions.has_key('JS'):
+                            js.append(an_actions['JS']['Value'])
+                            if an_actions['JS']['Value Type'] == 'Indirect Reference':
+                                js_temp = an_actions['JS']['Value'].replace(' R', '')
+                                __annot_additional_actions(js_temp)
+                            if an_actions['JS']['Value Type'] == 'Literal String':
+                                return an_actions['JS']['Value']
+                    return annot_adds
+
+
                 def __get_dimensions(rect):
                     if type(rect) == list:
                         for i in range(0, len(rect)):
@@ -424,7 +669,6 @@ class PyDF2JSON(object):
                     return
                 if annots.has_key('Value Type'):
                     if annots['Value Type'] == 'Indirect Reference':
-                        IR = True
                         annots_ref = annots['Value'].replace(' R', '')
                         # Map it
                         if not annots_ref in processed_objects:
@@ -432,13 +676,10 @@ class PyDF2JSON(object):
                             processed_objects.append(annots_ref)
                             for i in map_res:
                                 for j in range(0, len(map_res[i])):
-                                    annots_index = map_res[i][j]['Index']
                                     annots_value = map_res[i][j]['Value']
                                     __process_annots(annots_value)
                         else:
                             return
-                    else:
-                        IR = False
                     if annots['Value Type'] == 'Dictionary':
                         __process_annots(annots['Value'])
                     if annots['Value Type'] == 'Array':
@@ -460,6 +701,9 @@ class PyDF2JSON(object):
 
                         if len(uri) == 1 and len(sub_type) == 1 and len(rect_area) == 4:
                             summary['Link Annotations'].append({'Link': uri[0], 'Dimensions': rect_area})
+                if annots.has_key('AA'):
+                    acts = __annot_additional_actions(annots['AA']['Value'])
+                    aa['annot_adds'].append(acts)
                 return
 
 
@@ -478,6 +722,9 @@ class PyDF2JSON(object):
                                         __process_annots(page_value['Annots'])
                                     if page_value.has_key('Kids'):
                                         __process_pages(page_value['Kids'])
+                                    if page_value.has_key('AA'):
+                                        acts = __page_additional_actions(page_value['AA']['Value'])
+                                        aa['page_adds'].append({obj[i]: acts})
             if type(obj) == dict:
                 if obj.has_key('Value Type'):
                     if obj['Value Type'] == 'Array':
@@ -492,67 +739,175 @@ class PyDF2JSON(object):
                                     __process_annots(page_value['Annots'])
                                 if page_value.has_key('Kids'):
                                     __process_pages(page_value['Kids'])
+                                if page_value.has_key('AA'):
+                                    acts = __page_additional_actions(page_value['AA']['Value'])
+                                    aa['page_adds'].append({kids_value: acts})
             return
 
 
-        def __process_acroforms():
-            # Get Fields entry. It's a required entry.
+        def __process_acroforms(acros):
+            def __form_additional_actions(a_actions):
+                acro_adds = {}
+                if type(a_actions) == list:
+                    for i in a_actions:
+                        __form_additional_actions(i)
+                    return
+                if type(a_actions) == dict:
+                    if a_actions.has_key('F'):
+                        if a_actions['F']['Value Type'] == 'Indirect Reference':
+                            f_temp = a_actions['F']['Value'].replace(' R', '')
+                            f_map = self.__map_object(pdf['Body'], omap, f_temp, None, True)
+                            for i in f_map:
+                                for j in range(0, len(f_map[i])):
+                                    f_val = __form_additional_actions(f_map[i][j]['Value']['Value'])
+                                    acro_adds['F'] = {f_temp: f_val}
+                        if a_actions['F']['Value Type'] == 'Dictionary':
+                            __form_additional_actions(a_actions['F']['Value'])
+                    if a_actions.has_key('K'):
+                        if a_actions['K']['Value Type'] == 'Indirect Reference':
+                            k_temp = a_actions['K']['Value'].replace(' R', '')
+                            k_map = self.__map_object(pdf['Body'], omap, k_temp, None, True)
+                            for i in k_map:
+                                for j in range(0, len(k_map[i])):
+                                    k_val = __form_additional_actions(k_map[i][j]['Value']['Value'])
+                                    acro_adds['K'] = {k_temp: k_val}
+                        if a_actions['K']['Value Type'] == 'Dictionary':
+                            __form_additional_actions(a_actions['K']['Value'])
+                    if a_actions.has_key('V'):
+                        if a_actions['V']['Value Type'] == 'Indirect Reference':
+                            v_temp = a_actions['V']['Value'].replace(' R', '')
+                            v_map = self.__map_object(pdf['Body'], omap, v_temp, None, True)
+                            for i in v_map:
+                                for j in range(0, len(v_map[i])):
+                                    v_val = __form_additional_actions(v_map[i][j]['Value']['Value'])
+                                    acro_adds['V'] = {v_temp: v_val}
+                        if a_actions['V']['Value Type'] == 'Dictionary':
+                            __form_additional_actions(a_actions['V']['Value'])
+                    if a_actions.has_key('C'):
+                        if a_actions['C']['Value Type'] == 'Indirect Reference':
+                            c_temp = a_actions['C']['Value'].replace(' R', '')
+                            c_map = self.__map_object(pdf['Body'], omap, c_temp, None, True)
+                            for i in c_map:
+                                for j in range(0, len(c_map[i])):
+                                    c_val = __form_additional_actions(c_map[i][j]['Value']['Value'])
+                                    acro_adds['C'] = {c_temp: c_val}
+                        if a_actions['C']['Value Type'] == 'Dictionary':
+                            __form_additional_actions(a_actions['C']['Value'])
+                    if a_actions.has_key('JS'):
+                        js.append(a_actions['JS']['Value'])
+                        if a_actions['JS']['Value Type'] == 'Indirect Reference':
+                            js_temp = a_actions['JS']['Value'].replace(' R', '')
+                            __form_additional_actions(js_temp)
+                        if a_actions['JS']['Value Type'] == 'Literal String':
+                            return a_actions['JS']['Value']
+                return acro_adds
+
+
+            def __field_check(acros):
+                if type(acros) == list:
+                    for i in acros:
+                        x = __field_check(i)
+                        if x == True:
+                            return True
+
+                if type(acros) == dict:
+                    if acros.has_key('Fields'):
+                        if acros['Fields']['Value Type'] == 'Array':
+                            if len(acros['Fields']['Value']) > 0:
+                                for i in acros['Fields']['Value']:
+                                    acro_fields.append(i)
+                                return True
+                        if acros['Fields']['Value Type'] == 'Indirect Reference':
+                            x = __field_check(acros['Fields']['Value'])
+                            return x
+
+                if type(acros) == str:
+                    if re.search('[0-9]{1,6}\s[0-9]{1,6}\sR', acros):
+                        i_obj = acros.replace(' R', '')
+                        processed_objects.append(i_obj)
+                        i_obj_map = self.__map_object(pdf['Body'], omap, i_obj, None, True)
+                        for i in i_obj_map:
+                            for j in range(0, len(i_obj_map[i])):
+                                if i_obj_map[i][j]['Value']['Value Type'] == 'Array':
+                                    if len(i_obj_map[i][j]['Value']['Value']) > 0:
+                                        for k in i_obj_map[i][j]['Value']['Value']:
+                                            acro_fields.append(k)
+                                        return True
+                return False
+
+
+            def __field_actions(acros):
+                acro_actions = {}
+                if type(acros) == list:
+                    for i in acros:
+                        acro_fields = __field_actions(i)
+
+                if type(acros) == dict:
+                    if acros.has_key('Value Type'):
+                        if acros['Value Type'] == 'Indirect Reference':
+                            acro_ref = acros['Value'].replace(' R', '')
+                            acro_val = self.__map_object(pdf['Body'], omap, acro_ref, None, True)
+                            for i in acro_val:
+                                for j in range(0, len(acro_val[i])):
+                                    if type(acro_val[i][j]['Value']) == dict:
+                                        af_val = __field_actions(acro_val[i][j]['Value']['Value'])
+                                        if not len(af_val) == 0:
+                                            if af_val.has_key('AA'):
+                                                aa['acro_adds'].append({acro_ref: af_val['AA']})
+                                            else:
+                                                acro_actions[acro_ref] = af_val
+                        if acros['Value Type'] == 'Dictionary':
+                            if acros.has_key('Value'):
+                                acro_actions = __field_actions(acros['Value'])
+                    if acros.has_key('A'):
+                        if acros['A']['Value Type'] == 'Indirect Reference':
+                            a_ref = acros['A']['Value'].replace(' R', '')
+                            a_val = self.__map_object(pdf['Body'], omap, a_ref, None, True)
+                            for i in a_val:
+                                for j in range(0, len(a_val[i])):
+                                    if type(a_val[i][j]['Value']) == dict:
+                                        act_val = __field_actions(a_val[i][j]['Value'])
+                                        acro_actions[a_ref] = act_val
+                    if acros.has_key('AA'):
+                        acts = __form_additional_actions(acros['AA']['Value'])
+                        return {'AA': acts}
+                    if acros.has_key('S'):
+                        if acros['S']['Value Type'] == 'Indirect Reference':
+                            s_ref = acros['S']['Value'].replace(' R', '')
+                            s_val = self.__map_object(pdf['Body'], omap, s_ref, None, True)
+                            for i in s_val:
+                                for j in range(0, len(s_val[i])):
+                                    if type(s_val[i][j]['Value']) == dict:
+                                        s_type = __field_actions(s_val[i][j]['Value'])
+                        if acros['S']['Value Type'] == 'Named Object':
+                            if acros['S']['Value'] == 'JavaScript':
+                                if acros['JS']['Value Type'] == 'Indirect Reference':
+                                    js.append(acros['JS']['Value'])
+                                    js_ref = acros['JS']['Value'].replace(' R', '')
+                                    acro_actions['JavaScript'] = js_ref
+                                if acros['JS']['Value Type'] == 'Literal String':
+                                    if len(acros['JS']['Value']) > 30:
+                                        js_str = str(acros['JS']['Value'][0:30]) + ' Truncated...'
+                                        js.append(js_str)
+                                        acro_actions['JavaScript'] = js_str
+                                    else:
+                                        js_str = acros['JS']['Value']
+                                        js.append(js_str)
+                                        acro_actions['JavaScript'] = js_str
+                            if acros['S']['Value'] == 'SubmitForm':
+                                exec_key = acros['F']['Value']['F']['Value']
+                                return {'SubmitForm': exec_key}
+                return acro_actions
+
+            # Check if we even have fields before doing anything else...
             acro_fields = []
-            for i in acroforms:
-                if i.has_key('Fields'):
-                    if i['Fields']['Value Type'] == 'Array':
-                        for j in range(0, len(i['Fields']['Value'])):
-                            af_val = i['Fields']['Value'][j]['Value'].replace(' R', '')
-                            if not af_val in acro_fields:
-                                acro_fields.append(af_val)
-                    if i['Fields']['Value Type'] == 'Indirect Reference':
-                        tmp_obj = i['Fields']['Value'].replace(' R', '')
-                        fields_map = self.__map_object(pdf['Body'], omap, tmp_obj, None, True)
-                        for j in fields_map:
-                            for k in range(0, len(fields_map[j])):
-                                if fields_map[j][k]['Value'].has_key('Value Type'):
-                                    if fields_map[j][k]['Value']['Value Type'] == 'Array':
-                                        for l in fields_map[j][k]['Value']['Value']:
-                                            af_val = l['Value'].replace(' R', '')
-                                            if not af_val in acro_fields:
-                                                acro_fields.append(af_val)
-
-
-            if len(acro_fields) == 0:
-                self.__error_control('SpecViolation', 'Acroform missing \'Fields\' entry.')
-
-            # Process acro_fields. For now... I care about actions being executed.
-            actions = []
-            executing = []
-            for i in acro_fields:
-                processed_objects.append(i)
-                acro_map = self.__map_object(pdf['Body'], omap, i, None, True)
-                for j in acro_map:
-                    for k in range(0, len(acro_map[j])):
-                        acro_val = acro_map[j][k]['Value']
-                        # Go check what kind entry we got there...
-                        if acro_val['Value'].has_key('A'):
-                            # Sweet action
-                            if acro_val['Value']['A']['Value Type'] == 'Indirect Reference':
-                                actions.append(acro_val['Value']['A']['Value'].replace(' R', ''))
-
-
-            # Because these actions stemmed from an acroform we should be concerned with field 'F'
-            if actions > 0:
-                for i in actions:
-                    processed_objects.append(i)
-                    actions_map = self.__map_object(pdf['Body'], omap, i, None, True)
-                    for j in actions_map:
-                        for k in range(0, len(actions_map[j])):
-                            val_ref = actions_map[j][k]['Value']
-                            if val_ref['Value'].has_key('S'):
-                                if val_ref['Value']['S']['Value'] in action_types.keys():
-                                    subtype = val_ref['Value']['S']['Value']
-                                    if subtype == 'SubmitForm':
-                                        exec_key = val_ref['Value'][action_types[subtype]]['Value']['F']
-                                        executing.append([subtype, exec_key['Value']])
-
-            return executing
+            has_fields = __field_check(acros)
+            if has_fields:
+                for i in acro_fields:
+                    x = __field_actions(i)
+                    if not len(x) == 0:
+                        a_actions.append(x)
+            return
 
 
         def __process_names(names):
@@ -701,19 +1056,71 @@ class PyDF2JSON(object):
             return
 
 
+        def __catalog_additional_actions(c_actions):
+            cat_adds = {}
+            if type(c_actions) == list:
+                for i in c_actions:
+                    __catalog_additional_actions(i)
+                return
+            if type(c_actions) == dict:
+                if c_actions.has_key('WC'):
+                    if c_actions['WC']['Value Type'] == 'Indirect Reference':
+                        wc_temp = c_actions['WC']['Value'].replace(' R', '')
+                        wc_map = self.__map_object(pdf['Body'], omap, wc_temp, None, True)
+                        for i in wc_map:
+                            for j in range(0, len(wc_map[i])):
+                                wc_val = __catalog_additional_actions(wc_map[i][j]['Value']['Value'])
+                                cat_adds['WC'] = {wc_temp: wc_val}
+                    if c_actions['WC']['Value Type'] == 'Dictionary':
+                        __catalog_additional_actions(c_actions['WC']['Value'])
+                if c_actions.has_key('WS'):
+                    if c_actions['WS']['Value Type'] == 'Indirect Reference':
+                        ws_temp = c_actions['WS']['Value'].replace(' R', '')
+                        ws_map = self.__map_object(pdf['Body'], omap, ws_temp, None, True)
+                        for i in ws_map:
+                            for j in range(0, len(ws_map[i])):
+                                ws_val = __catalog_additional_actions(ws_map[i][j]['Value']['Value'])
+                                cat_adds['WS'] = {ws_temp: ws_val}
+                    if c_actions['WS']['Value Type'] == 'Dictionary':
+                        __catalog_additional_actions(c_actions['WS']['Value'])
+                if c_actions.has_key('JS'):
+                    js.append(c_actions['JS']['Value'])
+                    if c_actions['JS']['Value Type'] == 'Indirect Reference':
+                        js_temp = c_actions['JS']['Value'].replace(' R', '')
+                        __catalog_additional_actions(js_temp)
+                    if c_actions['JS']['Value Type'] == 'Literal String':
+                        return c_actions['JS']['Value']
+            return cat_adds
+
+
         root_objects, xref_offsets = __find_root()
+
+        js = []
+
+        # Additional Action storage
+        aa = {}
+        aa['cat_adds'] = []
+        aa['acro_adds'] = []
+        aa['page_adds'] = []
+        aa['annot_adds'] = []
+
         try:
-            pages, names, outlines, openactions, acroforms, uris, aa = __get_catalog_data()
+            #pages, names, outlines, openactions, acroforms, uris, cat_a = __get_catalog_data()
+            pages, names, outlines, openactions, acroforms, uris = __get_catalog_data()
         except Exception as e:
             raise e
         page_count = __get_pagecount()
         acro_count = len(acroforms)
         open_count = len(openactions)
 
+
+        #if len(cat_a) > 0:
+        #    acts = __catalog_additional_actions(cat_a)
+        #    print 'lol'
+
+        a_actions = []
         if acro_count > 0:
-            a_actions = __process_acroforms()
-        else:
-            a_actions = []
+            __process_acroforms(acroforms)
 
         if page_count > 0: # Umm it better be...
             p_actions = __process_pages(pages)
@@ -723,21 +1130,21 @@ class PyDF2JSON(object):
 
         name_files, name_javascript = [], []
         if len(names) > 0:
-            #name_tree = __process_names(names)
             __process_names(names)
-        #else:
-        #    name_tree = [[], []]
 
         js_checklist = (
             openactions,
             name_javascript
         )
-        js = []
         launchie = []
         for i in js_checklist:
             __process_js(i)
         js_count = len(js)
 
+        ad = []
+        if pdf['Body'].has_key('Arbitrary Data'):
+            for i in pdf['Body']['Arbitrary Data']:
+                ad.append({'Length': i['Length'], 'Type': i['Value Type'], 'Offset': i['Offset']})
         summary['Encryption'] = {}
         if self.__is_crypted:
             summary['Encryption']['enabled'] = True
@@ -751,6 +1158,7 @@ class PyDF2JSON(object):
         else:
             summary['Encryption']['enabled'] = False
         summary['Additional Actions'] = aa
+        summary['Arbitrary Data'] = ad
         summary['Pages'] = page_count
         summary['AcroForms'] = acro_count
         summary['AcroForm Actions'] = a_actions
@@ -831,6 +1239,7 @@ class PyDF2JSON(object):
             'docx': self.show_embedded_files,
             'xlsx': self.show_embedded_files,
             'zip': self.show_embedded_files,
+            'arbitrary': self.show_arbitrary,
             'Unknown': True
         }
         decoded_streams = [
@@ -910,6 +1319,10 @@ class PyDF2JSON(object):
                         except Exception as e:
                             cur_error = 'Exception:', type(e), e, obj_name
                             self.__error_list.append(cur_error)
+                else:
+                    if self.__is_crypted:
+                        if not obj_name in self.__crypt_handler_info['o_ignore']:
+                            cur_stream = self.__decrypt(cur_stream, 'stream', obj_name)
 
                 if not cur_error == '':
                     bod['Indirect Objects'][i_object_index][obj_name]['Decoded Stream'] = cur_error
@@ -994,6 +1407,9 @@ class PyDF2JSON(object):
             re.match('(cmap|glyf|head|hhea|hmtx|loca|maxp|name|post|OS/2|GSUB|GPOS|BASE|JSTF|GDEF|cvt |'
                      'DSIG|EBDT|EBLC|EBSC|fpgm|gasp|hdmx|kern|LTSH|prep|PCLT|VDMX|vhea|vmtx)', my_stream[12:16]):
             stream_type = 'ttf'
+
+        if re.match('\x4D\x5A', my_stream[0:2]):
+            stream_type = 'pefile'
 
         if re.match('\xFF\xD8\xFF', my_stream[0:3]) and \
             re.match('\xFF\xD9$', my_stream[l_stream - 2:l_stream]):
@@ -1362,11 +1778,37 @@ class PyDF2JSON(object):
 
         current_position = -1
         last_position = c
+        arb_data = ''
         while True:
             if last_position == current_position:
                 # We have an infinite loop in progress if we don't increment by at least 1 here.
                 # Probably caused by arbitrary data in the PDF. Might wanna increase the malware index.
+                if not body.has_key('Arbitrary Data'):
+                            body['Arbitrary Data'] = []
+                arb_data += x[c]
                 c += 1
+                if re.search('(\d{1,10}\s\d{1,10}\sobj|xref|trailer|startxref|%%EOF)', x[c:]):
+                    end_arb = re.search('(\d{1,10}\s\d{1,10}\sobj|xref|trailer|startxref|%%EOF)', x[c:]).start()
+                    arb_data += x[c:c + end_arb]
+                    c += end_arb
+                    arb_type, arb_data = self.__process_arbitrary_data(arb_data)
+                    len_arb = len(arb_data)
+                    if self.show_arbitrary:
+                        body['Arbitrary Data'].append({'Value Type': arb_type,
+                                                       'Offset': current_position,
+                                                       'Length': len_arb,
+                                                       'Value': arb_data})
+                    else:
+                        body['Arbitrary Data'].append({'Value Type': arb_type,
+                                                       'Length': len_arb,
+                                                       'Offset': current_position,})
+                    if self.dump_streams:
+                        dump_file = self.__gen_random_file()
+                        open(self.dump_loc + dump_file, 'wb').write(arb_data)
+                        body['Arbitrary Data'][-1]['Stream Dump Location'] = self.dump_loc + dump_file
+                    arb_data = ''
+                else:
+                    break
             if c >= l:
                 break
             last_position = c
@@ -1376,6 +1818,8 @@ class PyDF2JSON(object):
                 break # We reached the end of the file. Peace out!
             if re.match('\s', x[char_loc]):
                 # Got spaces in between objects. Proceede to next position.
+                if len(arb_data) > 0:
+                    arb_data += x[char_loc]
                 c += 1
                 current_position = c
                 continue
@@ -2059,6 +2503,12 @@ class PyDF2JSON(object):
                         break
 
                 while not key:
+                    if data_type == 'Array':
+                        if len(k_val) > 0:
+                            x.append(k_val)
+                            k_val = ''
+                            key = True
+                            break
                     p_type = point_type(object_points, pos)
                     if p_type[0] == None:
                         pos += 1
