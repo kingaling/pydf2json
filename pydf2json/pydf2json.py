@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.6')
+__version__ = ('2.1.7')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -60,9 +60,6 @@ class PyDF2JSON(object):
 
     # Keeping score of the shenanigans
     __overall_mal_index = [0, 0, 0, 0, 0, 0, 0, 0]
-
-    # Keeping track of errors
-    __error_list = []
 
     # is doc encrypted?
     __is_crypted = False
@@ -220,6 +217,7 @@ class PyDF2JSON(object):
         def __find_root():
             # Find the root objects via trailer entry...
             root_objects = []
+            xref_entries = []
             if pdf['Body'].has_key('Trailers'):
                 for i in range(0, len(pdf['Body']['Trailers'])):
                     if pdf['Body']['Trailers'][i]['Value'].has_key('Root'):
@@ -227,31 +225,21 @@ class PyDF2JSON(object):
                         if not root_entry in root_objects:
                             root_objects.append(root_entry)
 
-            if pdf['Body'].has_key('Start XRef Entries'):
-                xref_entries = []
-            else:
-                self.__update_mal_index(255, 0)
-                print 'exception(startxref missing)'
-                return 'exception(startxref missing)'
+            if not pdf['Body'].has_key('Start XRef Entries'):
+                self.__error_control('SpecViolation', 'startxref entry is missing')
 
             for i in pdf['Body']['Start XRef Entries']:
                 if not i == str(0): # Dummy xref table pointer for linear PDF's on page 1 of document.
                     xref_entries.append(int(i))
 
             if len(xref_entries) < 1:
-                self.__update_mal_index(255, 0)
-                print 'exception(startxref missing)'
-                return 'exception(startxref missing)'
+                self.__error_control('SpecViolation', 'startxref entry is missing')
 
             # Go find more root objects
             for i in xref_entries:
-                # Check map for this offset. If' it's not found, xref tables are mis-aligned and this is probably malware.
+                # Check map for this offset. If it's not found, xref tables are mis-aligned and this is probably malware.
                 if not omap['IO Offsets'].has_key(i) and not i in omap['XR Offsets']:
-                    self.__error_list.append('__format-error (Mis-aligned XRef Table)')
-                    xref_alignment = False
-                    self.__update_mal_index(10, 0)
-                else:
-                    xref_alignment = True
+                    self.__update_mal_index(1, 5)
 
             if pdf['Body'].has_key('XRef Streams'):
                 #back_ref = []
@@ -373,9 +361,7 @@ class PyDF2JSON(object):
                             if pdf['Body'][j][cat_index][i]['Value'].has_key('Pages'):
                                 pages.append(pdf['Body'][j][cat_index][i]['Value']['Pages']['Value'].replace(' R', ''))
                             else:
-                                self.__error_list.append('exception: No pages entry')
-                                print 'exception: Missing pages entry. Malformed PDF'
-                                exit()
+                                self.__error_control('SpecViolation', 'Required \'Pages\' entry missing.')
 
                             if pdf['Body'][j][cat_index][i]['Value'].has_key('AcroForm'):
                                 if pdf['Body'][j][cat_index][i]['Value']['AcroForm']['Value Type'] == 'Indirect Reference':
@@ -1056,43 +1042,6 @@ class PyDF2JSON(object):
             return
 
 
-        def __catalog_additional_actions(c_actions):
-            cat_adds = {}
-            if type(c_actions) == list:
-                for i in c_actions:
-                    __catalog_additional_actions(i)
-                return
-            if type(c_actions) == dict:
-                if c_actions.has_key('WC'):
-                    if c_actions['WC']['Value Type'] == 'Indirect Reference':
-                        wc_temp = c_actions['WC']['Value'].replace(' R', '')
-                        wc_map = self.__map_object(pdf['Body'], omap, wc_temp, None, True)
-                        for i in wc_map:
-                            for j in range(0, len(wc_map[i])):
-                                wc_val = __catalog_additional_actions(wc_map[i][j]['Value']['Value'])
-                                cat_adds['WC'] = {wc_temp: wc_val}
-                    if c_actions['WC']['Value Type'] == 'Dictionary':
-                        __catalog_additional_actions(c_actions['WC']['Value'])
-                if c_actions.has_key('WS'):
-                    if c_actions['WS']['Value Type'] == 'Indirect Reference':
-                        ws_temp = c_actions['WS']['Value'].replace(' R', '')
-                        ws_map = self.__map_object(pdf['Body'], omap, ws_temp, None, True)
-                        for i in ws_map:
-                            for j in range(0, len(ws_map[i])):
-                                ws_val = __catalog_additional_actions(ws_map[i][j]['Value']['Value'])
-                                cat_adds['WS'] = {ws_temp: ws_val}
-                    if c_actions['WS']['Value Type'] == 'Dictionary':
-                        __catalog_additional_actions(c_actions['WS']['Value'])
-                if c_actions.has_key('JS'):
-                    js.append(c_actions['JS']['Value'])
-                    if c_actions['JS']['Value Type'] == 'Indirect Reference':
-                        js_temp = c_actions['JS']['Value'].replace(' R', '')
-                        __catalog_additional_actions(js_temp)
-                    if c_actions['JS']['Value Type'] == 'Literal String':
-                        return c_actions['JS']['Value']
-            return cat_adds
-
-
         root_objects, xref_offsets = __find_root()
 
         js = []
@@ -1113,20 +1062,14 @@ class PyDF2JSON(object):
         acro_count = len(acroforms)
         open_count = len(openactions)
 
-
-        #if len(cat_a) > 0:
-        #    acts = __catalog_additional_actions(cat_a)
-        #    print 'lol'
-
         a_actions = []
         if acro_count > 0:
             __process_acroforms(acroforms)
 
         if page_count > 0: # Umm it better be...
-            p_actions = __process_pages(pages)
+            __process_pages(pages)
         else:
-            print 'Impossibru! There are no pages?!'
-            exit()
+            self.__error_control('SpecViolation', 'Unable to locate a page count during summarization')
 
         name_files, name_javascript = [], []
         if len(names) > 0:
@@ -1230,6 +1173,14 @@ class PyDF2JSON(object):
         return
 
 
+    def __exception2str(self, exception):
+        e = {}
+        for i in exception:
+            if type(i) == Exception:
+                e['Exception'] = i.message
+        return e
+
+
     def __process_streams(self, x, bod):
         stream_displays = {
             'ttf': self.show_ttf,
@@ -1318,14 +1269,13 @@ class PyDF2JSON(object):
                             self.__error_control(e.__repr__(), e.message, obj_name)
                         except Exception as e:
                             cur_error = 'Exception:', type(e), e, obj_name
-                            self.__error_list.append(cur_error)
                 else:
                     if self.__is_crypted:
                         if not obj_name in self.__crypt_handler_info['o_ignore']:
                             cur_stream = self.__decrypt(cur_stream, 'stream', obj_name)
 
                 if not cur_error == '':
-                    bod['Indirect Objects'][i_object_index][obj_name]['Decoded Stream'] = cur_error
+                    bod['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
                     i_object_index += 1
                     continue
                 stream_type = None
@@ -1337,9 +1287,8 @@ class PyDF2JSON(object):
                             xref_stream = self.__process_xref_stream(cur_stream, i[obj_name]['Value'], obj_name)
                         except:
                             cur_error = 'exception:(__process_xref_stream) in %s' % obj_name
-                            self.__error_list.append(cur_error)
                         if not cur_error == '':
-                            bod['Indirect Objects'][i_object_index][obj_name]['Decoded Stream'] = cur_error
+                            bod['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
                             i_object_index += 1
                             continue
                         if not bod.has_key('XRef Streams'):
@@ -1355,9 +1304,8 @@ class PyDF2JSON(object):
                             objstm = self.__process_object_stream(cur_stream, i[obj_name]['Value'], obj_name)
                         except:
                             cur_error = 'exception:(__process_object_stream) in %s' % obj_name
-                            self.__error_list.append(cur_error)
                         if not cur_error == '':
-                            bod['Indirect Objects'][i_object_index][obj_name]['Decoded Stream'] = cur_error
+                            bod['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
                             i_object_index += 1
                             continue
                         if not bod.has_key('Object Streams'):
@@ -1692,7 +1640,9 @@ class PyDF2JSON(object):
 
 
     def __decoder_tiff(self, my_stream):
-        return my_stream
+        # No decoder for this
+        raise Exception('TIFF encoded')
+        #return my_stream
 
 
     def __decoder_png(self, my_stream, parms):
@@ -1755,17 +1705,14 @@ class PyDF2JSON(object):
                 row_2_data = my_stream[(row * (row_width + 1)) + 1:(row * (row_width + 1)) + (row_width + 1)]
                 decoded_data += algo_2(row_1_data, row_2_data)
             if predictor == 3:
-                print 'predictor = 3. Oh noes! Exiting...'
-                exit()
-                decoded_data += algo_3(my_stream, row_width)
+                #decoded_data += algo_3(my_stream, row_width)
+                raise Exception('predictor = 3')
             if predictor == 4:
-                print 'predictor = 4. Oh noes! Exiting...'
-                exit()
-                decoded_data += algo_4(my_stream, row_width)
+                #decoded_data += algo_4(my_stream, row_width)
+                raise Exception('predictor = 4')
             if predictor == 5:
-                print 'predictor = 5. Oh noes! Exiting...'
-                exit()
-                decoded_data += algo_5(my_stream, row_width)
+                #decoded_data += algo_5(my_stream, row_width)
+                raise Exception('predictor = 5')
 
         return decoded_data
 
@@ -1773,7 +1720,6 @@ class PyDF2JSON(object):
     def __body_scan(self, x, s_point):
         c = s_point
         l = len(x)
-        mal_index = 0
         body = {}
 
         current_position = -1
@@ -1834,8 +1780,8 @@ class PyDF2JSON(object):
                     cur_obj = s_object[1][0].replace(' obj', '')
                     cur_val = {}
                     cur_val['Offset'] = char_loc
-                    mal_index += s_object[2]
-                    self.__update_mal_index(mal_index, 7)
+                    if s_object[2] > 0:
+                        self.__update_mal_index(s_object[2], 7)
                     if self.__is_crypted:
                         self.__crypt_handler_info['o_keys'][cur_obj] = self.__gen_obj_key(self.__crypt_handler_info['file_key'], cur_obj)
                     if s_object[0] == 'obj': # We have a valid indirect object

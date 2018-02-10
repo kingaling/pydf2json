@@ -52,6 +52,10 @@ See: `LaikaBOSS <https://github.com/lmco/laikaboss>`_ developed by Lockheed Mart
 
 Recent Activity
 ---------------
+20180131 - Additional processing capabilities added.
+    - Added processing of Additional Actions (/AA).
+    - Arbitrary data found outside of any known PDF object is now subject to analysis
+
 20180103 - Added decryption capabilities
     - Standard Security Handler Version 1, 2 & 4; Revision 2, 3, & 4
         - Tested code on CFM methods V2 and AESV2 (RC4 and AES respectively)
@@ -70,18 +74,19 @@ To Do
 1. pydf.py
     - Expand on the summary to include the following:
         - [w] Add the type of Launch and maybe trigger on some keywords like cmd.exe and .vbs to indicate malware.
-        - [ ] Possibly provide information on what objects contain js instead of just giving a count.
+        - [x] Possibly provide information on what objects contain js instead of just giving a count.
 
 2. pydf2json.py
-    - [w] Ongoing testing to see what breaks the json construction.
-    - [w] More robust error checking. It is currently weak because I have mainly been concerned with making things work.
+    - [x] Ongoing testing to see what breaks the json construction.
+    - [x] More robust error checking. It is currently weak because I have mainly been concerned with making things work.
     - [x] Fix stream decoding: If stream decoding fails then store encoded stream instead of erroring out.
-    - [ ] Currently have only 2 functioning PNG decoders. I have only come across PDF's that use algo 1 and 2.
-    - [ ] Currently no TIFF decoder. Haven't come across a need to provide it.
-    - [ ] Stream extension processing is non-existent. Haven't come across a PDF that uses it yet.
+    - [w] Currently have only 2 functioning PNG decoders.
+    - [D] Currently no TIFF decoder. Haven't come across a need to provide it.
+    - [D] Stream extension processing is non-existent. Haven't come across a PDF that uses it yet.
 
 3. LaikaBOSS module creation.
     - [ ] Code and test explode_pdf.py
 
-- w = working
-- x = done
+- D = Don't care. After all the PDF's I've researched, I still have no reason to provide this capability.
+- w = Working
+- x = Done
