@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.7')
+__version__ = ('2.1.8')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -462,7 +462,7 @@ class PyDF2JSON(object):
                 return page_adds
 
 
-            def __process_annots(annots):
+            def __process_annots(annots, page):
                 def __annot_additional_actions(an_actions):
                     annot_adds = {}
                     if type(an_actions) == list:
@@ -631,7 +631,9 @@ class PyDF2JSON(object):
                                     for k in range(0, len(a_map[j])):
                                         temp_sub_type, uri = __get_hyperlink(a_map[j][k]['Value'])
                                         if len(uri) == 1:
-                                            summary['Link Annotations'].append({'Link': uri[0], 'Dimensions': rect_area})
+                                            if not summary['Link Annotations'].has_key(page):
+                                                summary['Link Annotations'][page] = []
+                                            summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
                                             temp_sub_type = ''
                                             uri = []
 
@@ -643,7 +645,9 @@ class PyDF2JSON(object):
                             for k in range(0, len(a_map[j])):
                                 sub_type, uri = __get_hyperlink(a_map[j][k]['Value'])
                                 if len(uri) == 1:
-                                    summary['Link Annotations'].append({'Link': uri[0], 'Dimensions': rect_area})
+                                    if not summary['Link Annotations'].has_key(page):
+                                        summary['Link Annotations'][page] = []
+                                    summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
                                     sub_type = []
                                     uri = []
                     return sub_type, uri
@@ -651,7 +655,7 @@ class PyDF2JSON(object):
 
                 if type(annots) == list:
                     for i in annots:
-                        __process_annots(i)
+                        __process_annots(i, page)
                     return
                 if annots.has_key('Value Type'):
                     if annots['Value Type'] == 'Indirect Reference':
@@ -663,13 +667,13 @@ class PyDF2JSON(object):
                             for i in map_res:
                                 for j in range(0, len(map_res[i])):
                                     annots_value = map_res[i][j]['Value']
-                                    __process_annots(annots_value)
+                                    __process_annots(annots_value, page)
                         else:
                             return
                     if annots['Value Type'] == 'Dictionary':
-                        __process_annots(annots['Value'])
+                        __process_annots(annots['Value'], page)
                     if annots['Value Type'] == 'Array':
-                        __process_annots(annots['Value'])
+                        __process_annots(annots['Value'], page)
                         return
                 if annots.has_key('Subtype'):
                     if annots['Subtype']['Value'] == 'Link' and annots.has_key('Rect'):
@@ -679,14 +683,16 @@ class PyDF2JSON(object):
                         sub_type = []
 
                         if not summary.has_key('Link Annotations'):
-                            summary['Link Annotations'] = []
+                            summary['Link Annotations'] = {}
 
                         if annots.has_key('A'):
                             sub_type, uri = __get_hyperlink(annots['A'])
 
 
                         if len(uri) == 1 and len(sub_type) == 1 and len(rect_area) == 4:
-                            summary['Link Annotations'].append({'Link': uri[0], 'Dimensions': rect_area})
+                            if not summary['Link Annotations'].has_key(page):
+                                summary['Link Annotations'][page] = []
+                            summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
                 if annots.has_key('AA'):
                     acts = __annot_additional_actions(annots['AA']['Value'])
                     aa['annot_adds'].append(acts)
@@ -705,7 +711,17 @@ class PyDF2JSON(object):
                                 for k in range(0, len(page_map[j])):
                                     page_value = page_map[j][k]['Value']['Value']
                                     if page_value.has_key('Annots'):
-                                        __process_annots(page_value['Annots'])
+                                        if j == 'Object Streams':
+                                            o_type = 'O'
+                                        else:
+                                            o_type = 'I'
+                                        o_idx = str(page_map[j][k]['Index'])
+                                        k_spl = obj[i].split(' ')
+                                        o_obj = k_spl[0]
+                                        o_gen = k_spl[1]
+                                        o_off = str(page_map[j][k]['Value']['Offset'])
+                                        page_number = o_type + '.' + o_idx + '.' + o_obj + '.' + o_gen + '.' + o_off
+                                        __process_annots(page_value['Annots'], page_number)
                                     if page_value.has_key('Kids'):
                                         __process_pages(page_value['Kids'])
                                     if page_value.has_key('AA'):
@@ -722,7 +738,17 @@ class PyDF2JSON(object):
                             for k in range(0, len(page_map[j])):
                                 page_value = page_map[j][k]['Value']['Value']
                                 if page_value.has_key('Annots'):
-                                    __process_annots(page_value['Annots'])
+                                    if j == 'Object Streams':
+                                        o_type = 'O'
+                                    else:
+                                        o_type = 'I'
+                                    o_idx = str(page_map[j][k]['Index'])
+                                    k_spl = kids_value.split(' ')
+                                    o_obj = k_spl[0]
+                                    o_gen = k_spl[1]
+                                    o_off = str(page_map[j][k]['Value']['Offset'])
+                                    page_number = o_type + '.' + o_idx + '.' + o_obj + '.' + o_gen + '.' + o_off
+                                    __process_annots(page_value['Annots'], page_number)
                                 if page_value.has_key('Kids'):
                                     __process_pages(page_value['Kids'])
                                 if page_value.has_key('AA'):
@@ -2928,15 +2954,19 @@ class PyDF2JSON(object):
                 O = ret_dict[0]['Value']['O']['Value']
             if ret_dict[0]['Value']['O']['Value Type'] == 'Literal String':
                 O = ret_dict[0]['Value']['O']['Value'].encode('hex')
+                O = self.__escaped_string_replacement(O)
             if ret_dict[0]['Value']['U']['Value Type'] == 'Hexidecimal String':
                 U = ret_dict[0]['Value']['U']['Value']
             if ret_dict[0]['Value']['U']['Value Type'] == 'Literal String':
                 U = ret_dict[0]['Value']['U']['Value'].encode('hex')
+                U = self.__escaped_string_replacement(U)
             if O == None or U == None:
                 print '\nDecryption error: O or U is invalid. Aborting analysis.\n'
                 exit()
-            O = self.__escaped_string_replacement(O)
-            U = self.__escaped_string_replacement(U)
+            # Moved the following two lines up.
+            # String replacement should not be needed if it was already a hexidecimal string
+            #O = self.__escaped_string_replacement(O)
+            #U = self.__escaped_string_replacement(U)
             R = int(ret_dict[0]['Value']['R']['Value'])
             self.__crypt_handler_info['revision'] = R
             self.__crypt_handler_info['version'] = V

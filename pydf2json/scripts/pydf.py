@@ -6,7 +6,7 @@ import argparse
 import re
 
 
-__version__ = ('2.1.7')
+__version__ = ('2.1.8')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -143,8 +143,9 @@ def main():
                 print '\nURIs in document:'
                 tmp_link = []
                 for i in summary['Link Annotations']:
-                    if not i['Link'] in tmp_link:
-                        tmp_link.append(i['Link'])
+                    for j in summary['Link Annotations'][i]:
+                        if not j['Link'] in tmp_link:
+                            tmp_link.append(j['Link'])
                 for i in tmp_link:
                     print '\t' + i
             else:
