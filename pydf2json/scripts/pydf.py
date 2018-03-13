@@ -6,7 +6,7 @@ import argparse
 import re
 
 
-__version__ = ('2.1.8')
+__version__ = ('2.1.9')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -14,6 +14,7 @@ def argbuilder():
     parser = argparse.ArgumentParser(epilog="Note: Starred (*) arguments are disabled by default and will produce VERBOSE results if enabled.")
     parser.add_argument("pdf", help="Source PDF")
     parser.add_argument("-d", help="Dump all stream objects to a specified location", dest="location", metavar="LOCATION")
+    parser.add_argument("-s", help="Set maximum size of file in megabytes. Default is 2.", dest="max_size", default = 2)
     parser.add_argument("--no_summary",help="Showing the summary is the default. This disables it.", action="store_true")
     parser.add_argument("--show_json",help="Outputs pdf in json to the screen. Disabled by default.", action="store_true")
     jsongrp = parser.add_argument_group("json options")
@@ -60,9 +61,15 @@ def main():
     if args.show_ttf or args.show_all:
         pdf_object.show_ttf = True
 
+    pdf_object.max_size = int(args.max_size)
+
     # JSON'ify the pdf! :)
     try:
         jsonpdf_tuple = pdf_object.GetPDF(x)
+    except pydf2json.MaxSizeExceeded as e:
+        print e
+        print 'See command help for max_size override.'
+        exit()
     except Exception as e:
         print e
         exit()

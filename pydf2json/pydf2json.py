@@ -15,11 +15,14 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.8')
+__version__ = ('2.1.9')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
 class SpecViolation(Exception):
+    pass
+
+class MaxSizeExceeded(Exception):
     pass
 
 class PyDF2JSON(object):
@@ -45,6 +48,10 @@ class PyDF2JSON(object):
 
     # dump_streams: Dump streams to a temp location. Using this for LaikaBOSS objects.
     dump_streams = False
+
+    # max_size: Set a maximum size limit. Most PDF's I have seen that are malicious were no bigger than 500K.
+    # But we'll set it to 2MB. Takes integers only. All integers will be treated as MB.
+    max_size = 2
 
     # No touchie...
     # temp_loc: Temp directory where temp files are created that we need to work with
@@ -95,6 +102,9 @@ class PyDF2JSON(object):
         PDF = {}
         summary = {}
         PDF['Size'] = len(x)
+        # Check max_size. Convert size to MB
+        if (PDF['Size'] / 1048576.0) > self.max_size:
+            raise MaxSizeExceeded('PDF length exceeds ' + str(self.max_size) + 'MB. Aborting analysis.')
 
         if self.dump_streams:
             # Check path to ensure it ends with a \ or /:
@@ -1755,9 +1765,19 @@ class PyDF2JSON(object):
             if last_position == current_position:
                 # We have an infinite loop in progress if we don't increment by at least 1 here.
                 # Probably caused by arbitrary data in the PDF. Might wanna increase the malware index.
+                arb_data += x[c]
+                if arb_data == '%':
+                    # We have a comment in no mans land. Placing comments anywhere... is legal per the spec.
+                    # I don't think we can just call this arbitrary data. Skipping past it.
+                    end_arb = self.__line_scan(x, c + 1)[1]
+                    c = end_arb
+                    arb_data = ''
+                    last_position = c
+                    c += 1
+                    current_position = c
+                    continue
                 if not body.has_key('Arbitrary Data'):
                             body['Arbitrary Data'] = []
-                arb_data += x[c]
                 c += 1
                 if re.search('(\d{1,10}\s\d{1,10}\sobj|xref|trailer|startxref|%%EOF)', x[c:]):
                     end_arb = re.search('(\d{1,10}\s\d{1,10}\sobj|xref|trailer|startxref|%%EOF)', x[c:]).start()
