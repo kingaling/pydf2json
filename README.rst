@@ -52,6 +52,19 @@ See: `LaikaBOSS <https://github.com/lmco/laikaboss>`_ developed by Lockheed Mart
 
 Recent Activity
 ---------------
+20180312 - New pydf.py argument
+    - Added -s command line switch to specify the max size of the PDF to process
+       - pydf2json code has a 2MB hardcoded limit which can be changed when module is called.
+       - For inline analysis this will limit the analysis done.
+       - It's rare (where I work) to see a malicious PDF that exceeds 2MB, even 1MB.
+           - I may implement another analysis technique for files that exceed the limit
+           - Also, LaikaBOSS can use ClamAV and possibly other scan engines. I'll have to look into that.
+
+20180228 - Page tracking
+    - Added info to the summary that notes what page a hyperlink occurred on
+        - Not a page numbers; a custom identifier to aide in deciding if a page has been modified
+        - This will be needed for the LaikaBOSS module for that smarter detection I mentioned in the wiki.
+
 20180131 - Additional processing capabilities added.
     - Added processing of Additional Actions (/AA).
     - Arbitrary data found outside of any known PDF object is now subject to analysis
@@ -71,22 +84,8 @@ Recent Activity
 To Do
 -----
 
-1. pydf.py
-    - Expand on the summary to include the following:
-        - [w] Add the type of Launch and maybe trigger on some keywords like cmd.exe and .vbs to indicate malware.
-        - [x] Possibly provide information on what objects contain js instead of just giving a count.
+1. LaikaBOSS module creation.
+    - [w] Code and test explode_pdf.py
 
-2. pydf2json.py
-    - [x] Ongoing testing to see what breaks the json construction.
-    - [x] More robust error checking. It is currently weak because I have mainly been concerned with making things work.
-    - [x] Fix stream decoding: If stream decoding fails then store encoded stream instead of erroring out.
-    - [w] Currently have only 2 functioning PNG decoders.
-    - [D] Currently no TIFF decoder. Haven't come across a need to provide it.
-    - [D] Stream extension processing is non-existent. Haven't come across a PDF that uses it yet.
-
-3. LaikaBOSS module creation.
-    - [ ] Code and test explode_pdf.py
-
-- D = Don't care. After all the PDF's I've researched, I still have no reason to provide this capability.
 - w = Working
 - x = Done
