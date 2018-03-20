@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.9')
+__version__ = ('2.1.10')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -120,7 +120,8 @@ class PyDF2JSON(object):
                     self.dump_loc = self.dump_loc + '/' + self.__temp_dir + '/'
             if not os.path.exists(self.dump_loc):
                 os.makedirs(self.dump_loc)
-            PDF['Temp File Location'] = self.dump_loc
+            summary['Temp File Location'] = self.dump_loc
+            summary['Dumped Files'] = []
 
         # Verify we have PDF here.
         try:
@@ -159,7 +160,7 @@ class PyDF2JSON(object):
 
         # Proceed with PDF body processing
         try:
-            PDF['Body'] = self.__body_scan(x, s_offset)
+            PDF['Body'] = self.__body_scan(x, s_offset, summary)
         except Exception as e:
             raise e
 
@@ -168,7 +169,7 @@ class PyDF2JSON(object):
         # and preserved the position and length of all streams.
         # Now go get the streams... :)
         try:
-            self.__process_streams(x, PDF['Body'])
+            self.__process_streams(x, PDF['Body'], summary)
         except Exception as e:
             raise e
 
@@ -1217,7 +1218,7 @@ class PyDF2JSON(object):
         return e
 
 
-    def __process_streams(self, x, bod):
+    def __process_streams(self, x, bod, summary):
         stream_displays = {
             'ttf': self.show_ttf,
             'bitmap': self.show_bitmaps,
@@ -1360,6 +1361,7 @@ class PyDF2JSON(object):
                     dump_file = self.__gen_random_file()
                     open(self.dump_loc + dump_file, 'wb').write(cur_stream)
                     bod['Indirect Objects'][i_object_index][obj_name]['Stream Dump Location'] = self.dump_loc + dump_file
+                    summary['Dumped Files'].append(self.dump_loc + dump_file)
                 if not stream_type in decoded_streams:
                     if stream_displays[stream_type]:
                         bod['Indirect Objects'][i_object_index][obj_name]['Stream Data'] = cur_stream
@@ -1753,7 +1755,7 @@ class PyDF2JSON(object):
         return decoded_data
 
 
-    def __body_scan(self, x, s_point):
+    def __body_scan(self, x, s_point, summary):
         c = s_point
         l = len(x)
         body = {}
@@ -1798,6 +1800,7 @@ class PyDF2JSON(object):
                         dump_file = self.__gen_random_file()
                         open(self.dump_loc + dump_file, 'wb').write(arb_data)
                         body['Arbitrary Data'][-1]['Stream Dump Location'] = self.dump_loc + dump_file
+                        summary['Dumped Files'].append(self.dump_loc + dump_file)
                     arb_data = ''
                 else:
                     break
