@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.11')
+__version__ = ('2.1.12')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -153,10 +153,7 @@ class PyDF2JSON(object):
 
         if self.__is_crypted:
             if not 'Crypto.Cipher.AES' in sys.modules:
-                print '\nDocument is encrypted.'
-                print 'You need to install pycrypto for proper analysis'
-                print '\n\tpip install pycrypto\n'
-                raise Exception('Missing pycrypto')
+                raise Exception('Missing pycrypto. pip install pycrypto')
 
         # Proceed with PDF body processing
         try:
@@ -418,7 +415,6 @@ class PyDF2JSON(object):
                         pagecount = int(pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value'])
                     if pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value Type'] == 'Indirect Reference':
                         ir_index = pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value'].replace(' R', '')
-                        print 'Fix loop in __get_pagecount for indirect object trace'
                         raise Exception('Fix loop in __get_pagecount for indirect object trace')
             if omap['OS'].has_key(p_entry):
                 index = omap['OS'][p_entry][-1:][0][0]
@@ -427,10 +423,8 @@ class PyDF2JSON(object):
                         pagecount = int(pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value'])
                     if pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value Type'] == 'Indirect Reference':
                         ir_index = pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value'].replace(' R', '')
-                        print 'Fix loop in __get_pagecount for indirect object trace'
                         raise Exception('Fix loop in __get_pagecount for indirect object trace')
             if pagecount == None:
-                print 'Page count is jacked.'
                 raise Exception('No pages found')
             return pagecount
 
@@ -1511,37 +1505,31 @@ class PyDF2JSON(object):
                 x = {'Type': 'Compressed Object', 'Value': { 'Object Stream Number': o_data, 'Object Index': gi_num}}
                 return x
 
-            print 'Error: (__process_xref_stream() -> data_parse()) Fatal: Invalid data type in XRef stream. Exiting.'
             raise Exception('__process_xref_stream() -> data_parse() Fatal: Invalid data type in XRef stream. Exiting.')
 
         len_obj_stream = len(obj_stream)
         field_count = len(values['W']['Value'])
         wfield_1, wfield_2, wfield_3 = '', '', ''
         if not field_count == 3:
-            print 'XRef stream doesn\'t specify enough fields!'
             raise Exception('XRef stream doesn\'t specify enough fields!')
         loop_count = 0
         while True:
             if loop_count == 0:
                 wfield_1 = int(values['W']['Value'][0]['Value'])
                 if wfield_1 == 0:
-                    print 'Error: (__process_xref_stream) Field 1 = 0. I wanna see this PDF. plz send!'
                     raise Exception('__process_xref_stream) Field 1 = 0.')
             if loop_count == 1:
                 wfield_2 = int(values['W']['Value'][1]['Value'])
                 if wfield_2 == 0:
-                    print 'Error: (__process_xref_stream) Field 2 = 0. I wanna see this PDF. plz send!'
                     raise Exception('__process_xref_stream) Field 2 = 0.')
             if loop_count == 2:
                 wfield_3 = int(values['W']['Value'][2]['Value'])
                 if wfield_2 == 0:
-                    print 'Error: (__process_xref_stream) Field 3 = 0. I wanna see this PDF. plz send!'
                     raise Exception('__process_xref_stream) Field 3 = 0.')
             loop_count += 1
             if loop_count > field_count:
                 break
         if wfield_1 == '' or wfield_2 == '' or wfield_3 == '':
-            print 'Something happened parsing XRef stream fields!'
             raise Exception('Something happened parsing XRef stream fields.')
 
         field_width = wfield_1 + wfield_2 + wfield_3
@@ -1879,7 +1867,6 @@ class PyDF2JSON(object):
                                 self.__error_control('SpecViolation', 'endobj is missing', cur_obj)
 
                     else:
-                        print 'We have an invalid object. Exiting...'
                         raise Exception('Invalid object.')
             if re.match('xref', x[char_loc:char_loc + 4]):
                 xrf_tbl = []
@@ -2033,10 +2020,9 @@ class PyDF2JSON(object):
             if re.match('[\d]+\s[\d]+\sobj', new_str2[0]):
                 return 'obj', new_str2, (new_str[1] + new_str2[1])
             else:
-                print '__i_object_parse:(Error: This is not an indirect object)'
+                raise Exception('__i_object_parse(): This is not an indirect object')
         else:
-            print '__i_object_parse:(Error: This is not an indirect object)'
-        raise Exception('__i_object_parse(): This is not an indirect object')
+            raise Exception('__i_object_parse(): This is not an indirect object')
 
 
     def __update_mal_index(self, num, index):
@@ -2982,7 +2968,6 @@ class PyDF2JSON(object):
                 U = ret_dict[0]['Value']['U']['Value'].encode('hex')
                 U = self.__escaped_string_replacement(U)
             if O == None or U == None:
-                print '\nDecryption error: O or U is invalid. Aborting analysis.\n'
                 raise Exception('Decryption error: O or U is invalid. Aborting analysis.')
             # Moved the following two lines up.
             # String replacement should not be needed if it was already a hexidecimal string
@@ -3003,7 +2988,6 @@ class PyDF2JSON(object):
             # Test if file key is valid
             u_check = self.__confirm_file_key(pad, doc_id, self.__crypt_handler_info['file_key'], R)
             if not u_check == U[0:32].decode('hex'):
-                print 'Encrypted document requires a password. Aborting analysis.'
                 raise Exception('Encrypted document requires a password. Aborting analysis.')
 
         return
