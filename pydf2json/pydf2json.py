@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.10')
+__version__ = ('2.1.11')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -147,7 +147,7 @@ class PyDF2JSON(object):
         # That means __i_object_def_parse and __assemble_object_structure need to have the current object number passed to them
         # Or... in __body_scan, everytime I start a new object, I'll calculate an object key that can be read globally
         try:
-            self.__get_encryption_handler(x)
+            self.__get_encryption_handler(x, summary)
         except Exception as e:
             raise e
 
@@ -156,7 +156,7 @@ class PyDF2JSON(object):
                 print '\nDocument is encrypted.'
                 print 'You need to install pycrypto for proper analysis'
                 print '\n\tpip install pycrypto\n'
-                exit()
+                raise Exception('Missing pycrypto')
 
         # Proceed with PDF body processing
         try:
@@ -419,7 +419,7 @@ class PyDF2JSON(object):
                     if pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value Type'] == 'Indirect Reference':
                         ir_index = pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value'].replace(' R', '')
                         print 'Fix loop in __get_pagecount for indirect object trace'
-                        exit()
+                        raise Exception('Fix loop in __get_pagecount for indirect object trace')
             if omap['OS'].has_key(p_entry):
                 index = omap['OS'][p_entry][-1:][0][0]
                 if pdf['Body']['Object Streams'][index][p_entry]['Value'].has_key('Count'):
@@ -428,10 +428,10 @@ class PyDF2JSON(object):
                     if pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value Type'] == 'Indirect Reference':
                         ir_index = pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value'].replace(' R', '')
                         print 'Fix loop in __get_pagecount for indirect object trace'
-                        exit()
+                        raise Exception('Fix loop in __get_pagecount for indirect object trace')
             if pagecount == None:
                 print 'Page count is jacked.'
-                exit()
+                raise Exception('No pages found')
             return pagecount
 
 
@@ -1512,37 +1512,37 @@ class PyDF2JSON(object):
                 return x
 
             print 'Error: (__process_xref_stream() -> data_parse()) Fatal: Invalid data type in XRef stream. Exiting.'
-            exit()
+            raise Exception('__process_xref_stream() -> data_parse() Fatal: Invalid data type in XRef stream. Exiting.')
 
         len_obj_stream = len(obj_stream)
         field_count = len(values['W']['Value'])
         wfield_1, wfield_2, wfield_3 = '', '', ''
         if not field_count == 3:
             print 'XRef stream doesn\'t specify enough fields!'
-            exit()
+            raise Exception('XRef stream doesn\'t specify enough fields!')
         loop_count = 0
         while True:
             if loop_count == 0:
                 wfield_1 = int(values['W']['Value'][0]['Value'])
                 if wfield_1 == 0:
                     print 'Error: (__process_xref_stream) Field 1 = 0. I wanna see this PDF. plz send!'
-                    exit()
+                    raise Exception('__process_xref_stream) Field 1 = 0.')
             if loop_count == 1:
                 wfield_2 = int(values['W']['Value'][1]['Value'])
                 if wfield_2 == 0:
                     print 'Error: (__process_xref_stream) Field 2 = 0. I wanna see this PDF. plz send!'
-                    exit()
+                    raise Exception('__process_xref_stream) Field 2 = 0.')
             if loop_count == 2:
                 wfield_3 = int(values['W']['Value'][2]['Value'])
                 if wfield_2 == 0:
                     print 'Error: (__process_xref_stream) Field 3 = 0. I wanna see this PDF. plz send!'
-                    exit()
+                    raise Exception('__process_xref_stream) Field 3 = 0.')
             loop_count += 1
             if loop_count > field_count:
                 break
         if wfield_1 == '' or wfield_2 == '' or wfield_3 == '':
             print 'Something happened parsing XRef stream fields!'
-            exit()
+            raise Exception('Something happened parsing XRef stream fields.')
 
         field_width = wfield_1 + wfield_2 + wfield_3
 
@@ -1880,7 +1880,7 @@ class PyDF2JSON(object):
 
                     else:
                         print 'We have an invalid object. Exiting...'
-                        exit()
+                        raise Exception('Invalid object.')
             if re.match('xref', x[char_loc:char_loc + 4]):
                 xrf_tbl = []
                 xref_offset = char_loc
@@ -2036,7 +2036,7 @@ class PyDF2JSON(object):
                 print '__i_object_parse:(Error: This is not an indirect object)'
         else:
             print '__i_object_parse:(Error: This is not an indirect object)'
-        exit()
+        raise Exception('__i_object_parse(): This is not an indirect object')
 
 
     def __update_mal_index(self, num, index):
@@ -2695,9 +2695,7 @@ class PyDF2JSON(object):
         h_loc = x.find('%', 0)
         if h_loc > 0:
             self.__error_control('SpecViolation', 'Arbitrary data before header')
-        #if h_loc < 0:
-        #    print 'Not a PDF. Exiting...'
-        #    exit()
+
         pdf_version = self.__line_scan(x ,h_loc + 1)
         headers['Version'] = {}
         headers['Version']['Value'] = pdf_version[0]
@@ -2753,7 +2751,7 @@ class PyDF2JSON(object):
         return file_name
 
 
-    def __get_encryption_handler(self, x):
+    def __get_encryption_handler(self, x, summary):
         xref_offsets = []
         xref_tables = []
         trailers = {}
@@ -2861,7 +2859,7 @@ class PyDF2JSON(object):
                     stream_dimensions['Start'] = ret_stream[1]
                     trailers['Indirect Objects'][index][trailer]['Stream Dimensions'] = stream_dimensions
                     doc_id = trailers['Indirect Objects'][0][trailer]['Value']['ID']['Value'][0]['Value']
-                    self.__process_streams(x, trailers)
+                    self.__process_streams(x, trailers, summary)
 
 
         if len(trailers['Indirect Objects']) == 0 and len(trailers['Trailers']) == 0: # We have no Encrypt entries
@@ -2985,7 +2983,7 @@ class PyDF2JSON(object):
                 U = self.__escaped_string_replacement(U)
             if O == None or U == None:
                 print '\nDecryption error: O or U is invalid. Aborting analysis.\n'
-                exit()
+                raise Exception('Decryption error: O or U is invalid. Aborting analysis.')
             # Moved the following two lines up.
             # String replacement should not be needed if it was already a hexidecimal string
             #O = self.__escaped_string_replacement(O)
@@ -3006,7 +3004,7 @@ class PyDF2JSON(object):
             u_check = self.__confirm_file_key(pad, doc_id, self.__crypt_handler_info['file_key'], R)
             if not u_check == U[0:32].decode('hex'):
                 print 'Encrypted document requires a password. Aborting analysis.'
-                exit()
+                raise Exception('Encrypted document requires a password. Aborting analysis.')
 
         return
 
