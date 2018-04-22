@@ -1349,6 +1349,8 @@ class PyDF2JSON(object):
                     stream_type = self.__identify_stream(cur_stream)
                     if stream_type == '':
                         stream_type = 'Unknown'
+                    if stream_type == 'pdf_mcid':
+                        cur_stream = self.__parse_mcid(cur_stream)
                 stream_hash = self.__hash_stream(cur_stream)
                 bod['Indirect Objects'][i_object_index][obj_name]['Stream Hashes'] = stream_hash
                 if self.dump_streams:
@@ -1371,6 +1373,75 @@ class PyDF2JSON(object):
         return bod
 
 
+    def __parse_mcid(self, my_stream):
+        def get_strings(x):
+            strings = []
+            t_pos = 0
+            b_pos = t_pos
+            temp_str = x[t_pos:]
+            top_str = x
+            last_offset = 0
+            last_length = 0
+
+            c = 0  # Counter to keep track of nesting. When this reaches zero, we're done
+
+            while True:
+                if re.search('\(', top_str):
+                    s_start = re.search('\(', top_str).start()
+                    # Make sure it's not escaped.
+                    es_start = re.search('\\\\\(', top_str[s_start - 1:s_start + 1])
+                    if es_start == None: # We have an open parentheses thats not escaped. Begin literal string!
+                        strings.append({'Offset': s_start + last_offset + last_length, 'Length': ''})
+                        last_offset = last_offset + s_start
+                        l_strings = len(strings)
+                        temp_str = temp_str[s_start + 1:]
+                        b_pos += s_start + 1
+                        c += 1
+                        while True:
+                            try:
+                                boundary = re.search('\(|\)', top_str[b_pos:]).start()
+                            except:
+                                return 'Error: (Fatal: Malformed literal string.)'
+                            b_pos += boundary
+                            seq = top_str[b_pos:b_pos + 1]
+                            if seq == ')' and re.search('\\\\\)', top_str[b_pos - 1:b_pos + 1]) == None:
+                                b_pos += 1
+                                c -= 1
+                            if seq == ')' and not re.search('\\\\\)', top_str[b_pos - 1:b_pos + 1]) == None:
+                                b_pos += 1
+                            if seq == '(' and re.search('\\\\\(', top_str[b_pos - 1:b_pos + 1]) == None:
+                                b_pos += 1
+                                c += 1
+                            if seq == '(' and not re.search('\\\\\(', top_str[b_pos - 1:b_pos + 1]) == None:
+                                b_pos += 1
+                            new_str = (top_str[s_start:b_pos])
+                            temp_str = temp_str[boundary + 1:]
+                            if c == 0:
+                                length = len(new_str)
+                                end = strings[l_strings - 1]['Offset'] + (length - 1)
+                                strings[l_strings - 1]['Length'] = length
+                                strings[l_strings - 1]['End'] = end
+                                last_length = last_length + len(new_str)
+                                top_str = temp_str
+                                b_pos = 0
+                                break
+                else:
+                    break
+            return strings
+
+
+        def parse_map(map, f):
+            data = ''
+            for i in map:
+                data += f[i['Offset'] + 1: i['End']].replace('\(', '(').replace('\)', ')')
+            return data
+
+
+        string_map = get_strings(my_stream)
+        data = parse_map(string_map, my_stream)
+        return data
+
+
     def __hash_stream(self, my_stream):
         stream_hash = {}
         stream_hash['MD5'] = hashlib.md5(my_stream).hexdigest().upper()
@@ -1384,15 +1455,22 @@ class PyDF2JSON(object):
         l_stream = len(my_stream)
 
         if re.match('\x00\x01\x00\x00', my_stream[0:4]) and \
-            re.match('(cmap|glyf|head|hhea|hmtx|loca|maxp|name|post|OS/2|GSUB|GPOS|BASE|JSTF|GDEF|cvt |'
+                re.match('(cmap|glyf|head|hhea|hmtx|loca|maxp|name|post|OS/2|GSUB|GPOS|BASE|JSTF|GDEF|cvt |'
                      'DSIG|EBDT|EBLC|EBSC|fpgm|gasp|hdmx|kern|LTSH|prep|PCLT|VDMX|vhea|vmtx)', my_stream[12:16]):
             stream_type = 'ttf'
+
+        if re.search('/MCID', my_stream) and \
+                re.search('(BDC|BMC)', my_stream) and \
+                re.search('EMC', my_stream) and \
+                re.search('BT', my_stream) and \
+                re.search('ET', my_stream):
+            stream_type = 'pdf_mcid'
 
         if re.match('\x4D\x5A', my_stream[0:2]):
             stream_type = 'pefile'
 
         if re.match('\xFF\xD8\xFF', my_stream[0:3]) and \
-            re.match('\xFF\xD9$', my_stream[l_stream - 2:l_stream]):
+                re.match('\xFF\xD9$', my_stream[l_stream - 2:l_stream]):
             stream_type = 'graphic'
 
         if re.match('\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1', my_stream[0:8]):
