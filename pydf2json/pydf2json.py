@@ -15,7 +15,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.12')
+__version__ = ('2.1.13')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -1222,6 +1222,7 @@ class PyDF2JSON(object):
             'xlsx': self.show_embedded_files,
             'zip': self.show_embedded_files,
             'arbitrary': self.show_arbitrary,
+            'pdf_mcid': self.show_text,
             'Unknown': True
         }
         decoded_streams = [
@@ -1459,11 +1460,29 @@ class PyDF2JSON(object):
                      'DSIG|EBDT|EBLC|EBSC|fpgm|gasp|hdmx|kern|LTSH|prep|PCLT|VDMX|vhea|vmtx)', my_stream[12:16]):
             stream_type = 'ttf'
 
-        if re.search('/MCID', my_stream) and \
-                re.search('(BDC|BMC)', my_stream) and \
-                re.search('EMC', my_stream) and \
-                re.search('BT', my_stream) and \
-                re.search('ET', my_stream):
+        #if re.search('/MCID', my_stream) and \
+        #        re.search('(BDC|BMC)', my_stream) and \
+        #        re.search('EMC', my_stream) and \
+        #        re.search('BT', my_stream) and \
+        #        re.search('ET', my_stream):
+        #    stream_type = 'pdf_mcid'
+
+        if (
+            re.search('MCID', my_stream) and
+            re.search('(BDC|BMC)', my_stream) and
+            re.search('EMC', my_stream) and
+            re.search('BT', my_stream) and
+            re.search('ET', my_stream) and
+            re.search('\[\(', my_stream)
+        ) or (
+            re.search('BT', my_stream) and
+            re.search('ET', my_stream) and (
+                re.search('TJ', my_stream) or
+                re.search('Tj', my_stream)
+            ) and
+            re.search('Tm', my_stream) and
+            re.search('\[\(', my_stream)
+        ):
             stream_type = 'pdf_mcid'
 
         if re.match('\x4D\x5A', my_stream[0:2]):
