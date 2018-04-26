@@ -46,6 +46,9 @@ class PyDF2JSON(object):
     # show_arbitrary: Arbitrary data found outside of any object. Default is False.
     show_arbitrary = False
 
+    # show_text: Show any decoded text streams. Default is false.
+    show_text = False
+
     # dump_streams: Dump streams to a temp location. Using this for LaikaBOSS objects.
     dump_streams = False
 
