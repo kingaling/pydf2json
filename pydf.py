@@ -6,7 +6,7 @@ import argparse
 import re
 
 
-__version__ = ('2.1.12')
+__version__ = ('2.1.13')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -18,6 +18,7 @@ def argbuilder():
     parser.add_argument("--no_summary",help="Showing the summary is the default. This disables it.", action="store_true")
     parser.add_argument("--show_json",help="Outputs pdf in json to the screen. Disabled by default.", action="store_true")
     jsongrp = parser.add_argument_group("json options")
+    jsongrp.add_argument("--show_text", help="* Include page text in json output", action="store_true")
     jsongrp.add_argument("--show_ttf", help="* Include true type fonts in json output", action="store_true")
     jsongrp.add_argument("--show_bitmap", help="* Include bitmaps in json output", action="store_true")
     jsongrp.add_argument("--show_pics", help="* Include pictures in json output", action="store_true")
@@ -60,6 +61,8 @@ def main():
         pdf_object.show_arbitrary = True
     if args.show_ttf or args.show_all:
         pdf_object.show_ttf = True
+    if args.show_text or args.show_all:
+        pdf_object.show_text = True
 
     pdf_object.max_size = int(args.max_size)
 
