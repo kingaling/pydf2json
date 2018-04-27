@@ -270,10 +270,11 @@ class PyDF2JSON(object):
                     io_entry = omap['IO'][obj]
                     for j in range(0, len(io_entry)):
                         io_index = io_entry[j][0]
-                        if pdf['Body']['Indirect Objects'][io_index][obj]['Value'].has_key('Root'):
-                            tmp_root_obj = pdf['Body']['Indirect Objects'][io_index][obj]['Value']['Root']['Value'].replace(' R', '')
-                            if not tmp_root_obj in root_objects:
-                                root_objects.append(tmp_root_obj)
+                        if type(pdf['Body']['Indirect Objects'][io_index][obj]['Value']) == dict:
+                            if pdf['Body']['Indirect Objects'][io_index][obj]['Value'].has_key('Root'):
+                                tmp_root_obj = pdf['Body']['Indirect Objects'][io_index][obj]['Value']['Root']['Value'].replace(' R', '')
+                                if not tmp_root_obj in root_objects:
+                                    root_objects.append(tmp_root_obj)
 
             if  len(root_objects) == 0:
                 self.__error_control('SpecViolation', 'Required \'Root\' entry missing.')
