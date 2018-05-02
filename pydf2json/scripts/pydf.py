@@ -162,7 +162,7 @@ def main():
                 print '{:<21} {:>10}'.format('\nURIs in document:', '0')
 
         if aa_num > 0:
-            print '\nJavaScript detected in Additional Actions (AA):'
+            print '\nAdditional Actions (AA) detected:'
             for i in aa_sections:
                 if i == 'acro_adds':
                     print '\tAcroform Fields AA:'
