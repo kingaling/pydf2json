@@ -1464,28 +1464,17 @@ class PyDF2JSON(object):
                      'DSIG|EBDT|EBLC|EBSC|fpgm|gasp|hdmx|kern|LTSH|prep|PCLT|VDMX|vhea|vmtx)', my_stream[12:16]):
             stream_type = 'ttf'
 
-        #if re.search('/MCID', my_stream) and \
-        #        re.search('(BDC|BMC)', my_stream) and \
-        #        re.search('EMC', my_stream) and \
-        #        re.search('BT', my_stream) and \
-        #        re.search('ET', my_stream):
-        #    stream_type = 'pdf_mcid'
-
         if (
-            re.search('MCID', my_stream) and
-            re.search('(BDC|BMC)', my_stream) and
-            re.search('EMC', my_stream) and
-            re.search('BT', my_stream) and
-            re.search('ET', my_stream) and
-            re.search('\[\(', my_stream)
-        ) or (
             re.search('BT', my_stream) and
             re.search('ET', my_stream) and (
                 re.search('TJ', my_stream) or
                 re.search('Tj', my_stream)
+            ) and (
+                re.search('Tm', my_stream) or
+                re.search('Td', my_stream) or
+                re.search('TD', my_stream)
             ) and
-            re.search('Tm', my_stream) and
-            re.search('\[\(', my_stream)
+                re.search('\[\(', my_stream)
         ):
             stream_type = 'pdf_mcid'
 
@@ -2687,7 +2676,10 @@ class PyDF2JSON(object):
         if o_type == 'obj':
             def_end = re.search('(endobj|stream\x0D|stream\x0A)', x_str[c:]).start()
         if o_type == 'trailer':
-            def_end = re.search('startxref', x_str[c:]).start()
+            if re.search('startxref', x_str[c:]):
+                def_end = re.search('startxref', x_str[c:]).start()
+            else:
+                self.__error_control('SpecViolation', 'startxref entry is missing')
         def_obj_data = x_str[c:c + def_end]
         x = __object_search(def_obj_data)
         if o_type == 'trailer':
