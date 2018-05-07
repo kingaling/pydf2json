@@ -1694,9 +1694,18 @@ class PyDF2JSON(object):
 
     def __ascii85_decode(self, my_stream):
         base85_charset = '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstu'
-        new_encoded = my_stream
+        new_encoded = my_stream.replace('\x00', '')
+        new_encoded = new_encoded.replace('\x09', '')
+        new_encoded = new_encoded.replace('\x0A', '')
+        new_encoded = new_encoded.replace('\x0D', '')
+        new_encoded = new_encoded.replace('\x20', '')
+        try:
+            end = re.search('~>', new_encoded).start()
+            new_encoded = new_encoded[:end]
+        except AttributeError as e:
+            raise SpecViolation("ASCII85 stream improperly terminated")
         decoded = ''
-        remainder = len(my_stream) % 5
+        remainder = len(new_encoded) % 5
 
         if not remainder == 0:
             padding = (5 - remainder)
@@ -1706,8 +1715,8 @@ class PyDF2JSON(object):
         if padding > 0:
             for i in range(0, padding):
                 new_encoded += 'u'
-        else:
-            new_encoded = my_stream
+        #else:
+        #    new_encoded = my_stream
 
         for i in range(0, len(new_encoded), 5):
             x = new_encoded[i: i + 5]
@@ -3025,13 +3034,15 @@ class PyDF2JSON(object):
                     self.__crypt_handler_info['StmF'] = 'Identity'
                 else:
                     self.__crypt_handler_info['StmF'] = ret_dict[0]['Value']['StmF']['Value']
-                    if not ret_dict[0]['Value']['CF']['Value'].has_key(self.__crypt_handler_info['StmF']):
+                    if not ret_dict[0]['Value']['CF']['Value'].has_key(self.__crypt_handler_info['StmF']) and \
+                            not self.__crypt_handler_info['StmF'] == 'Identity':
                         self.__error_control('SpecViolation', 'Crypt filter doesn\'t exist', obj)
                 if not ret_dict[0]['Value'].has_key('StrF'):
                     self.__crypt_handler_info['StrF'] = 'Identity'
                 else:
                     self.__crypt_handler_info['StrF'] = ret_dict[0]['Value']['StrF']['Value']
-                    if not ret_dict[0]['Value']['CF']['Value'].has_key(self.__crypt_handler_info['StrF']):
+                    if not ret_dict[0]['Value']['CF']['Value'].has_key(self.__crypt_handler_info['StrF']) and \
+                            not self.__crypt_handler_info['StrF'] == 'Identity':
                         self.__error_control('SpecViolation', 'Crypt filter doesn\'t exist', obj)
                 self.__crypt_handler_info['method'] = ret_dict[0]['Value']['CF']['Value']['StdCF']['Value']['CFM']['Value']
                 if self.__crypt_handler_info['method'] == 'AESV2':
