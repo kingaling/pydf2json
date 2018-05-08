@@ -15,6 +15,7 @@ def argbuilder():
     parser.add_argument("pdf", help="Source PDF")
     parser.add_argument("-d", help="Dump all stream objects to a specified location", dest="location", metavar="LOCATION")
     parser.add_argument("-s", help="Set maximum size of file in megabytes. Default is 2.", dest="max_size", default = 2)
+    parser.add_argument("-p", help="Specify PDF password", dest="password", metavar="PASSWORD")
     parser.add_argument("--no_summary",help="Showing the summary is the default. This disables it.", action="store_true")
     parser.add_argument("--show_json",help="Outputs pdf in json to the screen. Disabled by default.", action="store_true")
     jsongrp = parser.add_argument_group("json options")
@@ -63,6 +64,10 @@ def main():
         pdf_object.show_ttf = True
     if args.show_text or args.show_all:
         pdf_object.show_text = True
+
+    # Check if a password was passed:
+    if not args.password == None:
+        pdf_object.pdf_password = args.password
 
     pdf_object.max_size = int(args.max_size)
 

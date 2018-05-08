@@ -31,6 +31,9 @@ class PyDF2JSON(object):
     # Example: Adding a decompressed 50K jpeg to the json output is probably not necessary unless you have need.
     # But, the below items will be hashed and the hash will placed into the json structure
 
+    # password: Use this password to decrypt document.
+    pdf_password = None
+
     # show_ttf: Place true type fonts streams in json output. Default is False.
     show_ttf = False
 
@@ -2946,7 +2949,7 @@ class PyDF2JSON(object):
                         self.__error_control('SpecViolation', 'trailer XRef stream is missing \'Length\' value', trailer)
                     stream_dimensions['Start'] = ret_stream[1]
                     trailers['Indirect Objects'][index][trailer]['Stream Dimensions'] = stream_dimensions
-                    doc_id = trailers['Indirect Objects'][0][trailer]['Value']['ID']['Value'][0]['Value']
+                    doc_id = trailers['Indirect Objects'][index][trailer]['Value']['ID']['Value'][0]['Value']
                     self.__process_streams(x, trailers, summary)
 
 
@@ -3083,11 +3086,22 @@ class PyDF2JSON(object):
             if not self.__crypt_handler_info.has_key('method'):
                 self.__crypt_handler_info['method'] = 'RC4'
 
-            # Assume user password is blank. If it isn't, we can't decrypt stuff anyway.
-            # Here's that blank password padding used by Adobe...
+            # Blank password padding used by Adobe...
             pad = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
 
-            self.__crypt_handler_info['file_key'] = self.__gen_file_key(pad, O, P, doc_id)
+            if self.pdf_password == None:
+                pdf_pass = pad
+            else:
+                tmp_pass = self.pdf_password.encode('hex').upper()
+                lex = len(tmp_pass)
+                if lex < 64:
+                    short = 64 - lex
+                    temp_pass = tmp_pass + pad[0:short]
+                else:
+                    temp_pass = tmp_pass[0:64]
+                pdf_pass = temp_pass
+
+            self.__crypt_handler_info['file_key'] = self.__gen_file_key(pdf_pass, O, P, doc_id)
 
             # Test if file key is valid
             u_check = self.__confirm_file_key(pad, doc_id, self.__crypt_handler_info['file_key'], R)
@@ -3097,9 +3111,9 @@ class PyDF2JSON(object):
         return
 
 
-    def __gen_file_key(self, U, O, P, ID):
+    def __gen_file_key(self, password, O, P, ID):
         md = hashlib.md5()
-        md.update(U.decode('hex'))  # Input should have been hex string
+        md.update(password.decode('hex'))  # Input should have been hex string
         md.update(O.decode('hex'))  # Input should have been hex string
         md.update(P)                # Input should have already been decoded into hex value
         md.update(ID.decode('hex')) # Input should have been hex string
@@ -3179,10 +3193,10 @@ class PyDF2JSON(object):
         return new_str
 
 
-    def __confirm_file_key(self, pad, ID, file_key, revision):
+    def __confirm_file_key(self, password, ID, file_key, revision):
         md = hashlib.md5()
         if revision >= 3:
-            md.update(pad.decode('hex'))
+            md.update(password.decode('hex'))
             md.update(ID.decode('hex'))
 
             digest = md.digest()
@@ -3197,7 +3211,7 @@ class PyDF2JSON(object):
 
                 cipher = self.__rc4_crypt(cipher, key)
         else:
-            cipher = self.__rc4_crypt(pad.decode('hex'), file_key)
+            cipher = self.__rc4_crypt(password.decode('hex'), file_key)
             return cipher
 
         return cipher
