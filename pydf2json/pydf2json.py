@@ -1466,6 +1466,7 @@ class PyDF2JSON(object):
                 re.match('(cmap|glyf|head|hhea|hmtx|loca|maxp|name|post|OS/2|GSUB|GPOS|BASE|JSTF|GDEF|cvt |'
                      'DSIG|EBDT|EBLC|EBSC|fpgm|gasp|hdmx|kern|LTSH|prep|PCLT|VDMX|vhea|vmtx)', my_stream[12:16]):
             stream_type = 'ttf'
+            return stream_type
 
         if (
             re.search('BT', my_stream) and
@@ -1480,6 +1481,7 @@ class PyDF2JSON(object):
                 re.search('\[\(', my_stream)
         ):
             stream_type = 'pdf_mcid'
+            return stream_type
 
         if re.match('\x4D\x5A', my_stream[0:2]):
             stream_type = 'pefile'
@@ -1695,58 +1697,95 @@ class PyDF2JSON(object):
         return final_obj_stream['Indirect Objects']
 
 
+    def __free_base(self, src, sc, dc):
+        src_base = len(sc)
+        dst_base = len(dc)
+        len_src = len(src)
+        sv = 0
+
+        # Need value of input before we can begin conversion
+        for i in range(0, len_src):
+            multiplier = sc.index(src[i])
+            power = len_src - i - 1
+            sv += (src_base ** power) * multiplier
+        # sv contains decimal (base 10) version of the input
+
+        # Begin conversion
+        if sv == 0:
+            return dc[0]
+        dv = ''
+        while True:
+            if sv == 0:
+                break
+            tmp_int = int(sv / dst_base)
+            dv = dc[(sv % dst_base)] + dv
+            sv = tmp_int
+
+        return dv
+
+
     def __ascii85_decode(self, my_stream):
-        base85_charset = '!"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstu'
+        att = ''
+        for i in range(0, 256):
+            att += chr(i) # att = all the things! charset containing all 256 chars
+
+        ascii85 = ''
+        for i in range(33, 118):
+            ascii85 += chr(i) # ascii85 charset
+
         new_encoded = my_stream.replace('\x00', '')
         new_encoded = new_encoded.replace('\x09', '')
         new_encoded = new_encoded.replace('\x0A', '')
         new_encoded = new_encoded.replace('\x0D', '')
         new_encoded = new_encoded.replace('\x20', '')
+
         try:
             end = re.search('~>', new_encoded).start()
             new_encoded = new_encoded[:end]
         except AttributeError as e:
             raise SpecViolation("ASCII85 stream improperly terminated")
-        decoded = ''
-        remainder = len(new_encoded) % 5
 
-        if not remainder == 0:
-            padding = (5 - remainder)
+        if re.search('z', new_encoded):
+            z_fill = re.findall('z', new_encoded)
+        else:
+            z_fill = ''
+
+        lex = len(new_encoded) + (len(z_fill) * 4) # length of x
+        mox = lex % 5 # mod of x
+        loops = lex / 5 # main loop count
+        dec_str = ''
+
+        if not mox == 0:
+            padding = (5 - mox)
         else:
             padding = 0
 
         if padding > 0:
+            loops += 1
             for i in range(0, padding):
                 new_encoded += 'u'
-        #else:
-        #    new_encoded = my_stream
 
-        for i in range(0, len(new_encoded), 5):
-            x = new_encoded[i: i + 5]
-            y = 0
-            for j in range(0, len(x)):
-                y += base85_charset.index(x[j]) * (85 ** (len(x) - (j + 1)))
-            yy = y
-            loop = 0
-            while True:
-                if yy < 256:
-                    decoded += chr(yy)
-                    break
-                z = (yy / 256)
-                if z < 256:
-                    loop += 1
-                    decoded += chr(z)
-                    yy = y - (z * (256 ** loop))
-                    y = yy
-                    loop = 0
-                else:
-                    loop += 1
-                    yy = int(yy / 256)
-        if padding > 0 and len(decoded) > 0:
+        i = 0
+        while i < (5 * loops):
+            #idx = (i * 5) # setting index of x
+            tmp = new_encoded[i:i+5]
+            if re.match('z', tmp):
+                res = '\x00\x00\x00\x00'
+                i += 1
+            else:
+                res = self.__free_base(tmp, ascii85, att)
+                if len(res) < 4:
+                    for j in range(0, 4 - len(res)):
+                        res = chr(0) + res
+                i += 5
+            dec_str += res
+
+        if padding > 0 and len(dec_str) > 0:
             for i in range(0, padding):
-                decoded = decoded[:-1]
+                dec_str = dec_str[:-1]
 
-        return decoded
+        return dec_str
+
 
 
     def __asciihexdecode(self, my_stream):
@@ -3025,12 +3064,35 @@ class PyDF2JSON(object):
                 self.__crypt_handler_info['key_length'] = int(ret_dict[0]['Value']['Length']['Value'])
             # Start setting things...
             if ret_dict[0]['Value']['V']['Value'] == '0' or \
-                            ret_dict[0]['Value']['V']['Value'] == '3' or \
-                            int(ret_dict[0]['Value']['V']['Value']) > 4:
-                self.__error_control('SpecViolation', 'Document encrypted with an unsupported version number. Aborting analysis.', obj)
+                            ret_dict[0]['Value']['V']['Value'] == '3':
+                self.__error_control('Exception', 'Document encrypted with an unsupported version number. Aborting analysis.', obj)
             else:
                 V = int(ret_dict[0]['Value']['V']['Value'])
-            if V == 4:
+
+            if ret_dict[0]['Value'].has_key('R'):
+                self.__crypt_handler_info['revision'] = int(ret_dict[0]['Value']['R']['Value'])
+            else:
+                self.__error_control('SpecViolation', 'Encryption dictionary missing revision number.', obj)
+
+            self.__crypt_handler_info['version'] = V
+
+            P = struct.pack('<l', int(ret_dict[0]['Value']['P']['Value']))
+            O = None
+            U = None
+            if ret_dict[0]['Value']['O']['Value Type'] == 'Hexidecimal String':
+                O = ret_dict[0]['Value']['O']['Value']
+            if ret_dict[0]['Value']['O']['Value Type'] == 'Literal String':
+                O = ret_dict[0]['Value']['O']['Value'].encode('hex')
+                O = self.__escaped_string_replacement(O)
+            if ret_dict[0]['Value']['U']['Value Type'] == 'Hexidecimal String':
+                U = ret_dict[0]['Value']['U']['Value']
+            if ret_dict[0]['Value']['U']['Value Type'] == 'Literal String':
+                U = ret_dict[0]['Value']['U']['Value'].encode('hex')
+                U = self.__escaped_string_replacement(U)
+            if O == None or U == None:
+                raise Exception('Decryption error: O or U is invalid. Aborting analysis.')
+
+            if V >= 4:
                 if not ret_dict[0]['Value'].has_key('CF'):
                     self.__error_control('SpecViolation', 'Encryption dictionary missing V4 CF value', obj)
                 if not ret_dict[0]['Value'].has_key('StmF'):
@@ -3048,7 +3110,7 @@ class PyDF2JSON(object):
                             not self.__crypt_handler_info['StrF'] == 'Identity':
                         self.__error_control('SpecViolation', 'Crypt filter doesn\'t exist', obj)
                 self.__crypt_handler_info['method'] = ret_dict[0]['Value']['CF']['Value']['StdCF']['Value']['CFM']['Value']
-                if self.__crypt_handler_info['method'] == 'AESV2':
+                if re.match('AES', self.__crypt_handler_info['method']):
                     self.__crypt_handler_info['salted'] = True
                 else:
                     self.__crypt_handler_info['salted'] = False
@@ -3060,31 +3122,38 @@ class PyDF2JSON(object):
                 else:
                     self.__crypt_handler_info['encrypt_metadata'] = True
 
-
-            P = struct.pack('<l', int(ret_dict[0]['Value']['P']['Value']))
-            O = None
-            U = None
-            if ret_dict[0]['Value']['O']['Value Type'] == 'Hexidecimal String':
-                O = ret_dict[0]['Value']['O']['Value']
-            if ret_dict[0]['Value']['O']['Value Type'] == 'Literal String':
-                O = ret_dict[0]['Value']['O']['Value'].encode('hex')
-                O = self.__escaped_string_replacement(O)
-            if ret_dict[0]['Value']['U']['Value Type'] == 'Hexidecimal String':
-                U = ret_dict[0]['Value']['U']['Value']
-            if ret_dict[0]['Value']['U']['Value Type'] == 'Literal String':
-                U = ret_dict[0]['Value']['U']['Value'].encode('hex')
-                U = self.__escaped_string_replacement(U)
-            if O == None or U == None:
-                raise Exception('Decryption error: O or U is invalid. Aborting analysis.')
-            # Moved the following two lines up.
-            # String replacement should not be needed if it was already a hexidecimal string
-            #O = self.__escaped_string_replacement(O)
-            #U = self.__escaped_string_replacement(U)
-            R = int(ret_dict[0]['Value']['R']['Value'])
-            self.__crypt_handler_info['revision'] = R
-            self.__crypt_handler_info['version'] = V
             if not self.__crypt_handler_info.has_key('method'):
                 self.__crypt_handler_info['method'] = 'RC4'
+
+            if V == 5:
+                OE = None
+                UE = None
+                Perms = None
+                if ret_dict[0]['Value']['OE']['Value Type'] == 'Hexidecimal String':
+                    OE = ret_dict[0]['Value']['OE']['Value']
+                if ret_dict[0]['Value']['OE']['Value Type'] == 'Literal String':
+                    OE = ret_dict[0]['Value']['OE']['Value'].encode('hex')
+                    OE = self.__escaped_string_replacement(OE)
+                if ret_dict[0]['Value']['UE']['Value Type'] == 'Hexidecimal String':
+                    UE = ret_dict[0]['Value']['UE']['Value']
+                if ret_dict[0]['Value']['UE']['Value Type'] == 'Literal String':
+                    UE = ret_dict[0]['Value']['UE']['Value'].encode('hex')
+                    UE = self.__escaped_string_replacement(UE)
+                if ret_dict[0]['Value']['Perms']['Value Type'] == 'Hexidecimal String':
+                    Perms = ret_dict[0]['Value']['Perms']['Value']
+                if ret_dict[0]['Value']['Perms']['Value Type'] == 'Literal String':
+                    Perms = ret_dict[0]['Value']['Perms']['Value'].encode('hex')
+                    Perms = self.__escaped_string_replacement(Perms)
+                if OE == None or UE == None or Perms == None:
+                    raise Exception('Decryption error: OE or UE is invalid. Aborting analysis.')
+
+            if V >= 6:
+                self.__error_control('Exception', 'Document encrypted with an unsupported version number. Aborting analysis.', obj)
+
+
+
+
+
 
             # Blank password padding used by Adobe...
             pad = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
@@ -3104,7 +3173,8 @@ class PyDF2JSON(object):
             self.__crypt_handler_info['file_key'] = self.__gen_file_key(pdf_pass, O, P, doc_id)
 
             # Test if file key is valid
-            u_check = self.__confirm_file_key(pad, doc_id, self.__crypt_handler_info['file_key'], R)
+            u_check = self.__confirm_file_key(pad, doc_id, self.__crypt_handler_info['file_key'],
+                                              self.__crypt_handler_info['revision'])
             if not u_check == U[0:32].decode('hex'):
                 raise Exception('Encrypted document requires a password. Aborting analysis.')
 
