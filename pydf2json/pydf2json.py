@@ -1,3 +1,19 @@
+# Copyright (C) 2018  Shane King <kingaling at meatchicken dot net>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
 import re
 import zlib
 import hashlib
@@ -15,7 +31,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.13')
+__version__ = ('2.1.14')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -1738,6 +1754,7 @@ class PyDF2JSON(object):
         new_encoded = new_encoded.replace('\x0A', '')
         new_encoded = new_encoded.replace('\x0D', '')
         new_encoded = new_encoded.replace('\x20', '')
+        new_encoded = new_encoded.replace('z', '!!!!!')
 
         try:
             end = re.search('~>', new_encoded).start()
@@ -1745,12 +1762,7 @@ class PyDF2JSON(object):
         except AttributeError as e:
             raise SpecViolation("ASCII85 stream improperly terminated")
 
-        if re.search('z', new_encoded):
-            z_fill = re.findall('z', new_encoded)
-        else:
-            z_fill = ''
-
-        lex = len(new_encoded) + (len(z_fill) * 4) # length of x
+        lex = len(new_encoded) # length of x
         mox = lex % 5 # mod of x
         loops = lex / 5 # main loop count
         dec_str = ''
@@ -1767,17 +1779,12 @@ class PyDF2JSON(object):
 
         i = 0
         while i < (5 * loops):
-            #idx = (i * 5) # setting index of x
             tmp = new_encoded[i:i+5]
-            if re.match('z', tmp):
-                res = '\x00\x00\x00\x00'
-                i += 1
-            else:
-                res = self.__free_base(tmp, ascii85, att)
-                if len(res) < 4:
-                    for j in range(0, 4 - len(res)):
-                        res = chr(0) + res
-                i += 5
+            res = self.__free_base(tmp, ascii85, att)
+            if len(res) < 4:
+                for j in range(0, 4 - len(res)):
+                    res = chr(0) + res
+            i += 5
             dec_str += res
 
         if padding > 0 and len(dec_str) > 0:
@@ -1785,7 +1792,6 @@ class PyDF2JSON(object):
                 dec_str = dec_str[:-1]
 
         return dec_str
-
 
 
     def __asciihexdecode(self, my_stream):

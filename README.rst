@@ -13,26 +13,39 @@ Usage
 
 ::
 
-   > pydf.py -h
-   usage: pydf.py [-h] [-d LOCATION] [--no_summary] [--show_json] [--show_ttf]
-                  [--show_bitmap] [--show_pics] [--show_embedded_files]
-                  pdf
+   > pydf.py
+     usage: pydf.py [-h] [-d LOCATION] [-s MAX_SIZE] [-p PASSWORD] [--no_summary]
+                    [--show_json] [--show_text] [--show_ttf] [--show_bitmap]
+                    [--show_pics] [--show_embedded_files] [--show_arbitrary]
+                    [--show_all]
+                    pdf
   
-   > pydf.py Docusign.pdf
-   Summary of PDF attributes:
-   --------------------------
-   
-   AA:                           0
-   AcroForms:                    0
-   Embedded Files:               0
-   JS:                           0
-   Launch:                       0
-   Object Streams:               0
-   OpenActions:                  0
-   Pages:                        2
-   
-   URIs in document:
-     O: 38 0       http://<redacted>.com/llp.php
+   > pydf.py secure_dropbox.pdf -p 29576AE2
+     Summary of PDF attributes:
+     --------------------------
+
+     Encrypted:                    True
+     Key:                          030359FF89FC8A8EB764E97AD2ED7091
+     Key Length:                   128
+     Algo:                         RC4
+
+     Additional Actions:           0
+     AcroForms:                    0
+     Embedded Files:               0
+     JS:                           0
+     Launch:                       0
+     Object Streams:               8
+     OpenActions:                  0
+     Pages:                        1
+
+     URIs in document:
+             http://<redacted>.xyz/sign-up/
+             http://<redacted>.xyz/signup/
+
+     Document Hashes:
+             SHA1       8733CC6196C7F26F027078E6A51B822462DA2CA3
+             SHA256     9D64D1EBA74F7078F5F524CCB4F79F3D41F1B7A631DE81D9FF2870FF5E4D2DFD
+             MD5        0F49F102421C286E50CD40EBDDB105AF
 
 pydf.py calls the pydf2json module to convert the PDF into a json-style dict and then accesses the structure to create the summary you see above.
 
@@ -52,6 +65,18 @@ See: `LaikaBOSS <https://github.com/lmco/laikaboss>`_ developed by Lockheed Mart
 
 Recent Activity
 ---------------
+20180515
+    - Decodes some page text
+        - Introduced new stream type: pdf_mcid
+        - Works on most (hopefully), but not all.
+    - Decrypt documents that require a password
+        - Added command line switch to accomodate this: -p
+    - Added new freebase function that can convert a number of any base to any other base
+        - Used this to rework the ascii85 decoder which was flawed.
+    - Various other cosmetic / logic issues
+
+History
+-------
 20180312 - New pydf.py argument
     - Added -s command line switch to specify the max size of the PDF to process
        - pydf2json code has a 2MB hardcoded limit which can be changed when module is called.
