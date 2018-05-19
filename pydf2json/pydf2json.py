@@ -1030,7 +1030,6 @@ class PyDF2JSON(object):
                     for i in emb:
                         name_files.append(i)
 
-            #if type(names) == dict:
             return
 
 
@@ -1246,6 +1245,7 @@ class PyDF2JSON(object):
             'zip': self.show_embedded_files,
             'arbitrary': self.show_arbitrary,
             'pdf_mcid': self.show_text,
+            'pefile': False,
             'Unknown': True
         }
         decoded_streams = [
@@ -1485,7 +1485,7 @@ class PyDF2JSON(object):
             return stream_type
 
         if (
-            re.search('BT', my_stream) and
+            re.search('BT', my_stream[0: 200]) and
             re.search('ET', my_stream) and (
                 re.search('TJ', my_stream) or
                 re.search('Tj', my_stream)
@@ -1556,7 +1556,7 @@ class PyDF2JSON(object):
                 if filter == 'ASCII85Decode':
                     new_stream = self.__ascii85_decode(new_stream)
             else:
-                raise SpecViolation("Invalid filter type passed to /Filter")
+                raise SpecViolation("Invalid filter type passed to /Filter" + ': \"' + filter + '\" ')
         else:
             return new_stream
 
@@ -2813,10 +2813,13 @@ class PyDF2JSON(object):
                             data['Value'][new_old_map[i]] = data['Value'].pop(i) # Interesting method of renaming keys....
                     # Keys should be deobfuscated. Send the value of each key back into this root function
                     for i in data['Value']:
-                        x = self.__named_object_deobfuscate(data['Value'][i])
+                        temp_x = self.__named_object_deobfuscate(data['Value'][i])
                 if data['Value Type'] == 'Array':
-                    for i in data['Value']:
-                        x = self.__named_object_deobfuscate(i)
+                    for i in range(0, len(data['Value'])):
+                        if type(data['Value'][i]) == str:
+                            data['Value'][i] = deobfuscate(data['Value'][i])
+                        else:
+                            temp_x = self.__named_object_deobfuscate(data['Value'][i])
                 if not data['Value Type'] == 'Named Object' or data['Value Type'] == 'Dictionary':
                     return data
             else:
