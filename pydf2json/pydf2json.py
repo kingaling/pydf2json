@@ -31,7 +31,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.14')
+__version__ = ('2.1.15')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
