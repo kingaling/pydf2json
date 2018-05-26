@@ -65,6 +65,11 @@ See: `LaikaBOSS <https://github.com/lmco/laikaboss>`_ developed by Lockheed Mart
 
 Recent Activity
 ---------------
+20180526
+    - Rewrote code that extracts EmbedddFiles and JavaScript summary info.
+
+History
+-------
 20180515
     - Decodes some page text
         - Introduced new stream type: pdf_mcid
@@ -75,8 +80,6 @@ Recent Activity
         - Used this to rework the ascii85 decoder which was flawed.
     - Various other cosmetic / logic issues
 
-History
--------
 20180312 - New pydf.py argument
     - Added -s command line switch to specify the max size of the PDF to process
        - pydf2json code has a 2MB hardcoded limit which can be changed when module is called.
@@ -109,8 +112,5 @@ History
 To Do
 -----
 
-1. LaikaBOSS module creation.
-    - [w] Code and test explode_pdf.py
-
-- w = Working
-- x = Done
+1. Decryption
+    - [ ] Need to read the newest PDF standard and add the V5 encryption/decryption algorithms.

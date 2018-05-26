@@ -31,7 +31,7 @@ except Exception as e:
     pass
 
 
-__version__ = ('2.1.15')
+__version__ = ('2.1.16')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -951,61 +951,33 @@ class PyDF2JSON(object):
 
 
         def __process_names(names):
-            def __process_embeddedfiles(embedded_files):
-                embedded = []
-                tmp_files = []
-                if type(embedded_files) == dict:
-                    if embedded_files.has_key('Value Type'):
-                        if embedded_files['Value Type'] == 'Indirect Reference':
-                            embedded.append(embedded_files['Value'].replace(' R', ''))
-                if len(embedded) > 0:
-                    for i in embedded:
-                        if i in processed_objects:
-                            continue
-                        processed_objects.append(i)
-                        ref_embedded = self.__map_object(pdf['Body'], omap, i, None, True)
-                        for j in ref_embedded:
-                            for k in range(0, len(ref_embedded[j])):
-                                if ref_embedded[j][k]['Value']['Value'].has_key('Names'):
-                                    if ref_embedded[j][k]['Value']['Value']['Names'].has_key('Value Type'):
-                                        if ref_embedded[j][k]['Value']['Value']['Names']['Value Type'] == 'Array':
-                                            for l in range(0, len(ref_embedded[j][k]['Value']['Value']['Names']['Value'])):
-                                                if ref_embedded[j][k]['Value']['Value']['Names']['Value'][l]['Value Type'] == 'Literal String':
-                                                    tmp_var = {}
-                                                    tmp_var['Name'] = ref_embedded[j][k]['Value']['Value']['Names']['Value'][l]['Value']
-                                                if ref_embedded[j][k]['Value']['Value']['Names']['Value'][l]['Value Type'] == 'Indirect Reference':
-                                                    tmp_var['Location'] = ref_embedded[j][k]['Value']['Value']['Names']['Value'][l]['Value']
-                                                    tmp_files.append(tmp_var)
+            def __process_named_item(obj):
+                if type(obj) == dict:
+                    if obj.has_key('Value Type'):
+                        if obj['Value Type'] == 'Indirect Reference':
+                            embedded_obj = obj['Value'].replace(' R', '')
+                            ref_embedded = self.__map_object(pdf['Body'], omap, embedded_obj, None, True)
+                            for j in ref_embedded:
+                                for k in range(0, len(ref_embedded[j])):
+                                    __process_named_item(ref_embedded[j][k])
+                        if obj['Value Type'] == 'Dictionary':
+                            __process_named_item(obj['Value'])
+                    else:
+                        if obj.has_key('Names'):
+                            if obj['Names'].has_key('Value Type'):
+                                if obj['Names']['Value Type'] == 'Array':
+                                    for i in range(0, len(obj['Names']['Value'])):
+                                        if obj['Names']['Value'][i]['Value Type'] == 'Literal String':
+                                            tmp_var = {}
+                                            tmp_var['Name'] = obj['Names']['Value'][i]['Value']
+                                        if obj['Names']['Value'][i]['Value Type'] == 'Indirect Reference':
+                                            tmp_var['Location'] = obj['Names']['Value'][i]['Value']
+                                            tmp_item.append(tmp_var)
+                        else:
+                            if obj.has_key('Value'):
+                                __process_named_item(obj['Value'])
+                return
 
-                return tmp_files
-
-
-            def __process_javascript(java_script):
-                java = []
-                tmp_java = []
-                if type(java_script) == dict:
-                    if java_script.has_key('Value Type'):
-                        if java_script['Value Type'] == 'Indirect Reference':
-                            java.append(java_script['Value'].replace(' R', ''))
-                if len(java) > 0:
-                    for i in java:
-                        if i in processed_objects:
-                            continue
-                        processed_objects.append(i)
-                        ref_java = self.__map_object(pdf['Body'], omap, i, None, True)
-                        for j in ref_java:
-                            for k in range(0, len(ref_java[j])):
-                                if ref_java[j][k]['Value']['Value'].has_key('Names'):
-                                    if ref_java[j][k]['Value']['Value']['Names'].has_key('Value Type'):
-                                        if ref_java[j][k]['Value']['Value']['Names']['Value Type'] == 'Array':
-                                            for l in range(0, len(ref_java[j][k]['Value']['Value']['Names']['Value'])):
-                                                if ref_java[j][k]['Value']['Value']['Names']['Value'][l]['Value Type'] == 'Literal String':
-                                                    tmp_var = {}
-                                                    tmp_var['Name'] = ref_java[j][k]['Value']['Value']['Names']['Value'][l]['Value']
-                                                if ref_java[j][k]['Value']['Value']['Names']['Value'][l]['Value Type'] == 'Indirect Reference':
-                                                    tmp_var['Location'] = ref_java[j][k]['Value']['Value']['Names']['Value'][l]['Value']
-                                                    tmp_java.append(tmp_var)
-                return tmp_java
 
             if type(names) == list:
                 for i in names:
@@ -1022,12 +994,14 @@ class PyDF2JSON(object):
                     else:
                         __process_names(names['Value'])
                 if names.has_key('JavaScript'):
-                    java = __process_javascript(names['JavaScript'])
-                    for i in java:
+                    tmp_item = []
+                    __process_named_item(names['JavaScript'])
+                    for i in tmp_item:
                         name_javascript.append(i)
                 if names.has_key('EmbeddedFiles'):
-                    emb = __process_embeddedfiles(names['EmbeddedFiles'])
-                    for i in emb:
+                    tmp_item = []
+                    __process_named_item(names['EmbeddedFiles'])
+                    for i in tmp_item:
                         name_files.append(i)
 
             return
@@ -1494,7 +1468,8 @@ class PyDF2JSON(object):
                 re.search('Td', my_stream) or
                 re.search('TD', my_stream)
             ) and
-                re.search('\[\(', my_stream)
+                re.search('\[\(', my_stream) and
+                re.search('\)\]', my_stream)
         ):
             stream_type = 'pdf_mcid'
             return stream_type
