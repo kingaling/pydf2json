@@ -1122,7 +1122,7 @@ class PyDF2JSON(object):
             summary['Encryption']['key_length'] = self.__crypt_handler_info['key_length']
             if self.__crypt_handler_info['method'] == 'V2' or self.__crypt_handler_info['method'] == 'RC4':
                 summary['Encryption']['algorithm'] = 'RC4'
-            if self.__crypt_handler_info['method'] == 'AESV2':
+            if self.__crypt_handler_info['method'][0:3] == 'AES':
                 summary['Encryption']['algorithm'] = 'AES'
 
         else:
@@ -3161,8 +3161,15 @@ class PyDF2JSON(object):
                     raise Exception('Encrypted document requires a password. Aborting analysis.')
 
             if V == 5:
-                file_key, perms = self.__2A(self.pdf_password, O.decode('hex'), U.decode('hex'),
-                             OE.decode('hex'), UE.decode('hex'), Perms, P)
+                # Blank password padding used by Adobe is NOT used for AESV3.
+                # Instead, set it to an empty string.
+                if self.pdf_password == None:
+                    pdf_pass = ''
+                else:
+                    pdf_pass = self.pdf_password
+
+                file_key, perms = self.__2A(pdf_pass, O.decode('hex'), U.decode('hex'),
+                             OE.decode('hex'), UE.decode('hex'), Perms.decode('hex'), P)
                 self.__crypt_handler_info['file_key'] = file_key
                 self.__crypt_handler_info['file_perms'] = perms
         return
@@ -3300,7 +3307,7 @@ class PyDF2JSON(object):
         handler = self.__crypt_handler_info # Didn't feel like keeping having to type 'self' while accessing this
 
         if data_type == 'Literal String':
-            if handler['version'] == 4:
+            if handler['version'] == 4 or handler['version'] == 5:
                 if handler['StrF'] == 'StdCF': # Assume string is encrypted with standard handler
                     data_is_crypted = True
                     new_str = self.__escaped_string_replacement(x)
@@ -3313,7 +3320,7 @@ class PyDF2JSON(object):
             new_str = x
 
         if data_type == 'stream':
-            if handler['version'] == 4:
+            if handler['version'] == 4 or handler['version'] == 5:
                 if handler['StmF'] == 'StdCF': # Assume stream is encrypted with standard handler
                     data_is_crypted = True
                 else:
@@ -3328,20 +3335,30 @@ class PyDF2JSON(object):
                 if data_type == 'stream':
                     IV = new_str[0:16]
 
-                #decryptor = AES.new(handler['o_keys'][cur_obj], AES.MODE_CBC, IV)
-
                 if data_type == 'Literal String':
                     new_str = self.__aes_crypt(new_str[32:].decode('hex'), handler['o_keys'][cur_obj],
                                                AES.MODE_CBC, IV, padding=False, function='decrypt')
-                    #new_str = decryptor.decrypt(new_str[32:].decode('hex'))
                 if data_type == 'stream':
                     new_str = self.__aes_crypt(new_str[16:], handler['o_keys'][cur_obj],
                                                AES.MODE_CBC, IV, padding=False, function='decrypt')
-                    #new_str = decryptor.decrypt(new_str[16:])
 
                 # Remove RFC 2898 padding
                 pad = ord(new_str[-1:])
                 new_str = new_str[:-pad]
+                return new_str
+
+            if handler['method'] == 'AESV3':
+                if data_type == 'Literal String':
+                    IV = new_str[0:32].decode('hex')
+                if data_type == 'stream':
+                    IV = new_str[0:16]
+
+                if data_type == 'Literal String':
+                    new_str = self.__aes_crypt(new_str[32:].decode('hex'), handler['file_key'],
+                                               AES.MODE_CBC, IV, padding=False, function='decrypt')
+                if data_type == 'stream':
+                    new_str = self.__aes_crypt(new_str[16:], handler['file_key'], AES.MODE_CBC, IV,
+                                               padding=False, function='decrypt')
                 return new_str
 
             if handler['method'] == 'V2' or handler['method'] == 'RC4':
@@ -3381,14 +3398,14 @@ class PyDF2JSON(object):
             return E
 
 
-    # New hawtness. Version 5 / Revision 6 decryption algorithms
+    # Version 5 / Revision 6 decryption algorithms
+    # Based the function names off of the algorithm names in the 320000-2:2017 spec.
     def __2A(self, password, o, u, oe, ue, Perms, P):
         def __get_filekey(password, o, u, oe, ue, check_type):
             U = u[0:48]
             u_hash = u[0:32]
             uv_salt = u[32:40]
             uk_salt = u[40:48]
-            O = o[0:48]
             o_hash = o[0:32]
             ov_salt = o[32:40]
             ok_salt = o[40:48]
@@ -3418,7 +3435,7 @@ class PyDF2JSON(object):
             else:
                 return
 
-        # Check if this is the ownser pass or users pass:
+        # Check if this is the owners pass or users pass:
         file_key =__get_filekey(password, o, u, oe, ue, check_type='owner')
         if file_key == None:
             file_key =__get_filekey(password, o, u, oe, ue, check_type='user')
@@ -3427,19 +3444,15 @@ class PyDF2JSON(object):
 
 
         IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-        perms = self.__aes_crypt(Perms.decode('hex'), file_key, AES.MODE_ECB, IV, padding=False, function='decrypt')
-        P_unpacked = struct.pack('<l', P)
+        perms = self.__aes_crypt(Perms, file_key, AES.MODE_ECB, IV, padding=False, function='decrypt')
 
-        if P_unpacked[0:4] == perms[0:4] and perms[9:12] == 'adb':
+        if P[0:4] == perms[0:4] and perms[9:12] == 'adb':
             return file_key, perms
         else:
             raise SpecViolation('Perms string is non compliant.')
 
 
     def __2B(self, input, password, h_salts, purpose):
-        # if purpose == 'U_CREATE':
-        # We are creating the U string, so 'h_salts' only contains the last 16 bytes of it.
-
         md = hashlib.sha256()
         md.update(input)
         K = md.digest()
