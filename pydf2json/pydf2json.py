@@ -1504,19 +1504,24 @@ class PyDF2JSON(object):
         known_encoders = {
             'FlateDecode',
             'ASCIIHexDecode',
-            'ASCII85Decode'
+            'ASCII85Decode',
+            'Crypt'
         }
         known_not_implemented = {
             'LZWDecode',
             'RunLengthDecode',
             'JBIG2Decode',
-            'JPXDecode',
-            'Crypt'
+            'JPXDecode'
         }
 
         if self.__is_crypted:
             if not cur_obj in self.__crypt_handler_info['o_ignore']:
-                my_stream = self.__decrypt(my_stream, 'stream', cur_obj)
+                if filter == 'Crypt':
+                    if decodeparms == '':
+                        # Assume crypt filer name = 'Identity' and skip decryption
+                        return my_stream
+                else:
+                    my_stream = self.__decrypt(my_stream, 'stream', cur_obj)
 
         new_stream = my_stream
 
