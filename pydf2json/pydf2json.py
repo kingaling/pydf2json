@@ -967,6 +967,20 @@ class PyDF2JSON(object):
                             if obj['Names'].has_key('Value Type'):
                                 if obj['Names']['Value Type'] == 'Array':
                                     for i in range(0, len(obj['Names']['Value'])):
+                                        if obj['Names']['Value'][i]['Value Type'] == 'Dictionary':
+                                            if obj['Names']['Value'][i]['Value'].has_key('Type'):
+                                                if obj['Names']['Value'][i]['Value']['Type']['Value'] == 'Filespec':
+                                                    if obj['Names']['Value'][i]['Value'].has_key('F'):
+                                                        tmp_var['FileName'] = obj['Names']['Value'][i]['Value']['F']['Value']
+                                                        tmp_item.append(tmp_var)
+                                                    else:
+                                                        if obj['Names']['Value'][i]['Value'].has_key('UF'):
+                                                            tmp_var['FileName'] = obj['Names']['Value'][i]['Value']['UF']['Value']
+                                                            tmp_item.append(tmp_var)
+                                                        else:
+                                                            if obj['Names']['Value'][i]['Value'].has_key('EF'):
+                                                                tmp_var['Location'] = obj['Names']['Value'][i]['Value']['EF']['Value']
+                                                                tmp_item.append(tmp_var)
                                         if obj['Names']['Value'][i]['Value Type'] == 'Literal String':
                                             tmp_var = {}
                                             tmp_var['Name'] = obj['Names']['Value'][i]['Value']
