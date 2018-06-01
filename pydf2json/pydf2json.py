@@ -967,6 +967,20 @@ class PyDF2JSON(object):
                             if obj['Names'].has_key('Value Type'):
                                 if obj['Names']['Value Type'] == 'Array':
                                     for i in range(0, len(obj['Names']['Value'])):
+                                        if obj['Names']['Value'][i]['Value Type'] == 'Dictionary':
+                                            if obj['Names']['Value'][i]['Value'].has_key('Type'):
+                                                if obj['Names']['Value'][i]['Value']['Type']['Value'] == 'Filespec':
+                                                    if obj['Names']['Value'][i]['Value'].has_key('F'):
+                                                        tmp_var['FileName'] = obj['Names']['Value'][i]['Value']['F']['Value']
+                                                        tmp_item.append(tmp_var)
+                                                    else:
+                                                        if obj['Names']['Value'][i]['Value'].has_key('UF'):
+                                                            tmp_var['FileName'] = obj['Names']['Value'][i]['Value']['UF']['Value']
+                                                            tmp_item.append(tmp_var)
+                                                        else:
+                                                            if obj['Names']['Value'][i]['Value'].has_key('EF'):
+                                                                tmp_var['Location'] = obj['Names']['Value'][i]['Value']['EF']['Value']
+                                                                tmp_item.append(tmp_var)
                                         if obj['Names']['Value'][i]['Value Type'] == 'Literal String':
                                             tmp_var = {}
                                             tmp_var['Name'] = obj['Names']['Value'][i]['Value']
@@ -1122,7 +1136,7 @@ class PyDF2JSON(object):
             summary['Encryption']['key_length'] = self.__crypt_handler_info['key_length']
             if self.__crypt_handler_info['method'] == 'V2' or self.__crypt_handler_info['method'] == 'RC4':
                 summary['Encryption']['algorithm'] = 'RC4'
-            if self.__crypt_handler_info['method'] == 'AESV2':
+            if self.__crypt_handler_info['method'][0:3] == 'AES':
                 summary['Encryption']['algorithm'] = 'AES'
 
         else:
@@ -1504,19 +1518,24 @@ class PyDF2JSON(object):
         known_encoders = {
             'FlateDecode',
             'ASCIIHexDecode',
-            'ASCII85Decode'
+            'ASCII85Decode',
+            'Crypt'
         }
         known_not_implemented = {
             'LZWDecode',
             'RunLengthDecode',
             'JBIG2Decode',
-            'JPXDecode',
-            'Crypt'
+            'JPXDecode'
         }
 
         if self.__is_crypted:
             if not cur_obj in self.__crypt_handler_info['o_ignore']:
-                my_stream = self.__decrypt(my_stream, 'stream', cur_obj)
+                if filter == 'Crypt':
+                    if decodeparms == '':
+                        # Assume crypt filer name = 'Identity' and skip decryption
+                        return my_stream
+                else:
+                    my_stream = self.__decrypt(my_stream, 'stream', cur_obj)
 
         new_stream = my_stream
 
@@ -3134,34 +3153,44 @@ class PyDF2JSON(object):
             if V >= 6:
                 self.__error_control('Exception', 'Document encrypted with an unsupported version number. Aborting analysis.', obj)
 
+            # Generate file_key based on Version/Revision
+            if V < 5:
+                # Blank password padding used by Adobe...
+                pad = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
 
-
-
-
-
-            # Blank password padding used by Adobe...
-            pad = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
-
-            if self.pdf_password == None:
-                pdf_pass = pad
-            else:
-                tmp_pass = self.pdf_password.encode('hex').upper()
-                lex = len(tmp_pass)
-                if lex < 64:
-                    short = 64 - lex
-                    temp_pass = tmp_pass + pad[0:short]
+                if self.pdf_password == None:
+                    pdf_pass = pad
                 else:
-                    temp_pass = tmp_pass[0:64]
-                pdf_pass = temp_pass
+                    tmp_pass = self.pdf_password.encode('hex').upper()
+                    lex = len(tmp_pass)
+                    if lex < 64:
+                        short = 64 - lex
+                        temp_pass = tmp_pass + pad[0:short]
+                    else:
+                        temp_pass = tmp_pass[0:64]
+                    pdf_pass = temp_pass
 
-            self.__crypt_handler_info['file_key'] = self.__gen_file_key(pdf_pass, O, P, doc_id)
+                file_key = self.__gen_file_key(pdf_pass, O, P, doc_id)
 
-            # Test if file key is valid
-            u_check = self.__confirm_file_key(pad, doc_id, self.__crypt_handler_info['file_key'],
-                                              self.__crypt_handler_info['revision'])
-            if not u_check == U[0:32].decode('hex'):
-                raise Exception('Encrypted document requires a password. Aborting analysis.')
+                # Test if file key is valid
+                u_check = self.__confirm_file_key(pad, doc_id, file_key, self.__crypt_handler_info['revision'])
+                if u_check == U[0:32].decode('hex'):
+                    self.__crypt_handler_info['file_key'] = file_key
+                else:
+                    raise Exception('Encrypted document requires a password. Aborting analysis.')
 
+            if V == 5:
+                # Blank password padding used by Adobe is NOT used for AESV3.
+                # Instead, set it to an empty string.
+                if self.pdf_password == None:
+                    pdf_pass = ''
+                else:
+                    pdf_pass = self.pdf_password
+
+                file_key, perms = self.__2A(pdf_pass, O.decode('hex'), U.decode('hex'),
+                             OE.decode('hex'), UE.decode('hex'), Perms.decode('hex'), P)
+                self.__crypt_handler_info['file_key'] = file_key
+                self.__crypt_handler_info['file_perms'] = perms
         return
 
 
@@ -3297,7 +3326,7 @@ class PyDF2JSON(object):
         handler = self.__crypt_handler_info # Didn't feel like keeping having to type 'self' while accessing this
 
         if data_type == 'Literal String':
-            if handler['version'] == 4:
+            if handler['version'] == 4 or handler['version'] == 5:
                 if handler['StrF'] == 'StdCF': # Assume string is encrypted with standard handler
                     data_is_crypted = True
                     new_str = self.__escaped_string_replacement(x)
@@ -3310,7 +3339,7 @@ class PyDF2JSON(object):
             new_str = x
 
         if data_type == 'stream':
-            if handler['version'] == 4:
+            if handler['version'] == 4 or handler['version'] == 5:
                 if handler['StmF'] == 'StdCF': # Assume stream is encrypted with standard handler
                     data_is_crypted = True
                 else:
@@ -3325,15 +3354,30 @@ class PyDF2JSON(object):
                 if data_type == 'stream':
                     IV = new_str[0:16]
 
-                decryptor = AES.new(handler['o_keys'][cur_obj], AES.MODE_CBC, IV)
-
                 if data_type == 'Literal String':
-                    new_str = decryptor.decrypt(new_str[32:].decode('hex'))
+                    new_str = self.__aes_crypt(new_str[32:].decode('hex'), handler['o_keys'][cur_obj],
+                                               AES.MODE_CBC, IV, padding=False, function='decrypt')
                 if data_type == 'stream':
-                    new_str = decryptor.decrypt(new_str[16:])
+                    new_str = self.__aes_crypt(new_str[16:], handler['o_keys'][cur_obj],
+                                               AES.MODE_CBC, IV, padding=False, function='decrypt')
 
+                # Remove RFC 2898 padding
                 pad = ord(new_str[-1:])
                 new_str = new_str[:-pad]
+                return new_str
+
+            if handler['method'] == 'AESV3':
+                if data_type == 'Literal String':
+                    IV = new_str[0:32].decode('hex')
+                if data_type == 'stream':
+                    IV = new_str[0:16]
+
+                if data_type == 'Literal String':
+                    new_str = self.__aes_crypt(new_str[32:].decode('hex'), handler['file_key'],
+                                               AES.MODE_CBC, IV, padding=False, function='decrypt')
+                if data_type == 'stream':
+                    new_str = self.__aes_crypt(new_str[16:], handler['file_key'], AES.MODE_CBC, IV,
+                                               padding=False, function='decrypt')
                 return new_str
 
             if handler['method'] == 'V2' or handler['method'] == 'RC4':
@@ -3344,3 +3388,121 @@ class PyDF2JSON(object):
                 return new_str
 
         return new_str
+
+
+    def __aes_crypt(self, plaintext, key, mode, iv, padding, function):
+        pad = len(plaintext) % 16
+        if pad == 0:
+            pad += 16
+        else:
+            pad = 16 - pad
+        padstr = ''
+        if padding:
+            for i in range(pad):
+                padstr += chr(pad)
+        else:
+            for i in range(pad):
+                padstr += '\x00'
+        plaintext += padstr
+
+        cryptor = AES.new(key, mode, iv)
+        if function == 'encrypt':
+            E = cryptor.encrypt(plaintext)
+        if function == 'decrypt':
+            E = cryptor.decrypt(plaintext)
+
+        if not padding:
+            return E[0:-pad]
+        else:
+            return E
+
+
+    # Version 5 / Revision 6 decryption algorithms
+    # Based the function names off of the algorithm names in the 320000-2:2017 spec.
+    def __2A(self, password, o, u, oe, ue, Perms, P):
+        def __get_filekey(password, o, u, oe, ue, check_type):
+            U = u[0:48]
+            u_hash = u[0:32]
+            uv_salt = u[32:40]
+            uk_salt = u[40:48]
+            o_hash = o[0:32]
+            ov_salt = o[32:40]
+            ok_salt = o[40:48]
+
+            IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+            found = False
+
+            if check_type == 'owner':
+                check = self.__2B(password + ov_salt + U, password, U, purpose='O_CHECK')
+            if check_type == 'user':
+                check = self.__2B(password + uv_salt, password, U, purpose='U_CHECK')
+
+            if check == o_hash:
+                # Owners password was used
+                key = self.__2B(password + ok_salt + U, password, U, purpose='O_CREATE')
+                file_key = self.__aes_crypt(oe, key, AES.MODE_CBC, IV, padding=False, function='decrypt')
+                found = True
+
+            if check == u_hash:
+                # Users password was used
+                key = self.__2B(password + uk_salt, password, U, purpose='U_CREATE')
+                file_key = self.__aes_crypt(ue, key, AES.MODE_CBC, IV, padding=False, function='decrypt')
+                found = True
+
+            if found:
+                return file_key
+            else:
+                return
+
+        # Check if this is the owners pass or users pass:
+        file_key =__get_filekey(password, o, u, oe, ue, check_type='owner')
+        if file_key == None:
+            file_key =__get_filekey(password, o, u, oe, ue, check_type='user')
+            if file_key == None:
+                raise Exception('Unable to decrypt document. Bad password?')
+
+
+        IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+        perms = self.__aes_crypt(Perms, file_key, AES.MODE_ECB, IV, padding=False, function='decrypt')
+
+        if P[0:4] == perms[0:4] and perms[9:12] == 'adb':
+            return file_key, perms
+        else:
+            raise SpecViolation('Perms string is non compliant.')
+
+
+    def __2B(self, input, password, h_salts, purpose):
+        md = hashlib.sha256()
+        md.update(input)
+        K = md.digest()
+
+        round = 0
+        while True:
+            round +=1
+
+            K1 = ''
+            for i in range(64):
+                if purpose == 'O_CHECK' or purpose == 'O_CREATE':
+                    K1 += password + K + h_salts # h_salts should equal a 48-byte U string; hash + v & k salts
+                else:
+                    K1 += password + K
+
+            key = K[0:16]
+            IV = K[16:32]
+            E = self.__aes_crypt(K1, key, AES.MODE_CBC, IV, padding=False, function='encrypt')
+
+            tmp_int = int(E[0:16].encode('hex'), 16)
+            modulus = tmp_int % 3
+            if modulus == 0:
+                md = hashlib.sha256()
+            if modulus == 1:
+                md = hashlib.sha384()
+            if modulus == 2:
+                md = hashlib.sha512()
+            md.update(E)
+            K = md.digest()
+            last_E = ord(E[-1:])
+            if round >= 64 and last_E <= ((round - 1) - 32):
+                break
+
+        return K[0:32]
