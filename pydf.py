@@ -21,7 +21,7 @@ import argparse
 import re
 
 
-__version__ = ('2.1.16')
+__version__ = ('2.2.0')
 __author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
 
 
@@ -178,8 +178,6 @@ def main():
                             tmp_link.append(j['Link'])
                 for i in tmp_link:
                     print '\t' + i
-            else:
-                print '{:<21} {:>10}'.format('\nURIs in document:', '0')
 
         if aa_num > 0:
             print '\nAdditional Actions (AA) detected:'
@@ -198,5 +196,7 @@ def main():
         print '\nDocument Hashes:'
         for i in jsonpdf['Document Hashes']:
             print '\t{:<10} {:<0}'.format(i, jsonpdf['Document Hashes'][i])
+
+
 if __name__ == '__main__':
     main()

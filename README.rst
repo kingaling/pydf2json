@@ -65,11 +65,17 @@ See: `LaikaBOSS <https://github.com/lmco/laikaboss>`_ developed by Lockheed Mart
 
 Recent Activity
 ---------------
-20180526
-    - Rewrote code that extracts EmbedddFiles and JavaScript summary info.
+20180601 - Added decryption capabilities (Set version to 2.2.0)
+    - Standard Security Handler Version 5; Revision 6
+        - Tested code on AESV3 with no issues using user passwords, owner passwords and blank passwords
+    - Code will exit upon discovering encryption if pycrypto modules have not been loaded
+        - So please do 'pip install pycrypto'
 
 History
 -------
+20180526
+    - Rewrote code that extracts EmbedddFiles and JavaScript summary info.
+
 20180515
     - Decodes some page text
         - Introduced new stream type: pdf_mcid
@@ -112,5 +118,4 @@ History
 To Do
 -----
 
-1. Decryption
-    - [ ] Need to read the newest PDF standard and add the V5 encryption/decryption algorithms.
+1. Nothing pending at the moment.
