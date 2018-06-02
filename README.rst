@@ -118,4 +118,5 @@ History
 To Do
 -----
 
-1. Nothing pending at the moment.
+1. Malware index
+    - Need to work on the malware index described on line 100 of pydf2json.py
