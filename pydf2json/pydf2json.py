@@ -1519,7 +1519,7 @@ class PyDF2JSON(object):
         }
         known_encoders = {
             'FlateDecode',
-            'Fl'
+            'Fl',
             'ASCIIHexDecode',
             'AHx',
             'ASCII85Decode',
