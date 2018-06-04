@@ -1519,8 +1519,11 @@ class PyDF2JSON(object):
         }
         known_encoders = {
             'FlateDecode',
+            'Fl'
             'ASCIIHexDecode',
+            'AHx',
             'ASCII85Decode',
+            'A85',
             'Crypt'
         }
         known_not_implemented = {
