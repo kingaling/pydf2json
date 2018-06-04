@@ -1513,7 +1513,9 @@ class PyDF2JSON(object):
     def __filter_parse(self, my_stream, filter, decodeparms, cur_obj):
         ignore_filters = {
             'DCTDecode',
-            'CCITTFaxDecode'
+            'DCT',
+            'CCITTFaxDecode',
+            'CCF'
         }
         known_encoders = {
             'FlateDecode',
@@ -1523,7 +1525,9 @@ class PyDF2JSON(object):
         }
         known_not_implemented = {
             'LZWDecode',
+            'LZW',
             'RunLengthDecode',
+            'RL',
             'JBIG2Decode',
             'JPXDecode'
         }
@@ -1543,11 +1547,11 @@ class PyDF2JSON(object):
             if filter in known_not_implemented:
                 return new_stream
             if filter in known_encoders:
-                if filter == 'FlateDecode':
+                if filter == 'FlateDecode' or filter == 'Fl':
                     new_stream = self.__flatedecode(new_stream)
-                if filter == 'ASCIIHexDecode':
+                if filter == 'ASCIIHexDecode' or filter == 'AHx':
                     new_stream = self.__asciihexdecode(new_stream)
-                if filter == 'ASCII85Decode':
+                if filter == 'ASCII85Decode' or filter == 'A85':
                     new_stream = self.__ascii85_decode(new_stream)
             else:
                 raise SpecViolation("Invalid filter type passed to /Filter" + ': \"' + filter + '\" ')
