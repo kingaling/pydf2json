@@ -21,8 +21,8 @@ import argparse
 import re
 
 
-__version__ = ('2.2.0')
-__author__ = ('Shane King <kingaling_at_meatchicken_dot_net>')
+__version__ = '2.2.0'
+__author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
 def argbuilder():
@@ -49,6 +49,7 @@ def main():
     args = argbuilder()
     pdf_object = pydf2json.PyDF2JSON()
     x = ""
+    jsonpdf_tuple = None
 
     # Check if input file is valid
     if pydf2json.os.path.isfile(args.pdf):
@@ -58,7 +59,7 @@ def main():
         exit()
 
     # Check if dump location was specified and is valid
-    if not args.location == None:
+    if not args.location is None:
         if pydf2json.os.path.isdir(args.location):
             pdf_object.dump_streams = True
             pdf_object.dump_loc = args.location
@@ -81,12 +82,12 @@ def main():
         pdf_object.show_text = True
 
     # Check if a password was passed:
-    if not args.password == None:
+    if not args.password is None:
         pdf_object.pdf_password = args.password
 
     pdf_object.max_size = int(args.max_size)
 
-    # JSON'ify the pdf! :)
+    # Get PDF
     try:
         jsonpdf_tuple = pdf_object.GetPDF(x)
     except pydf2json.MaxSizeExceeded as e:
@@ -97,9 +98,8 @@ def main():
         print e
         exit()
 
-    #jsonpdf_tuple = pdf_object.GetPDF(x) # Debugging...
     jsonpdf = jsonpdf_tuple[0]
-    omap = jsonpdf_tuple[1]
+    #omap = jsonpdf_tuple[1]
     summary = jsonpdf_tuple[2]
     del jsonpdf_tuple
 
@@ -132,7 +132,6 @@ def main():
                         aa_sections[i] = []
                     aa_sections[i].append(j)
 
-        #print '{:<20} {:>10}'.format('AA:', str(len(summary['Additional Actions'])))
         print '{:<20} {:>10}'.format('Additional Actions:', str(aa_num))
         print '{:<20} {:>10}'.format('AcroForms:', str(summary['AcroForms']))
         print '{:<20} {:>10}'.format('Embedded Files:', str(len(summary['EmbeddedFiles'])))
