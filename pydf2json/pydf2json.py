@@ -43,10 +43,6 @@ class MaxSizeExceeded(Exception):
 
 class PyDF2JSON(object):
 
-    # Thing you might wanna change. The default for the below items is 'False' because they are very verbose.
-    # Example: Adding a decompressed 50K jpeg to the json output is probably not necessary unless you have need.
-    # But, the below items will be hashed and the hash will placed into the json structure
-
     # password: Use this password to decrypt document.
     pdf_password = None
 
@@ -75,7 +71,6 @@ class PyDF2JSON(object):
     # But we'll set it to 2MB. Takes integers only. All integers will be treated as MB.
     max_size = 2
 
-    # No touchie...
     # temp_loc: Temp directory where temp files are created that we need to work with
     __chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
     __temp_dir = "".join(random.sample(__chars, 16))
@@ -101,9 +96,9 @@ class PyDF2JSON(object):
     # Each index has a max value of 0xFF (255)
 
     # 00 00 00 00 00 00 00 00
-    # |  |  |  |  |  |  |  |____ Not used yet
+    # |  |  |  |  |  |  |  |____ Unnecessary white space
     # |  |  |  |  |  |  |_______ Named object obfuscation.
-    # |  |  |  |  |  |__________ Not used yet (Misaligned object locations) *
+    # |  |  |  |  |  |__________ Misaligned object locations *
     # |  |  |  |  |_____________ Not used yet (Javascript) *
     # |  |  |  |________________ Not used yet
     # |  |  |___________________ Not used yet
@@ -1082,7 +1077,8 @@ class PyDF2JSON(object):
                 for i in omap['XRT Offsets']:
                     tmpo = str(i)
                     if not tmpo in pdf['Body']['Start XRef Entries']:
-                        self.__error_control('SpecViolation', 'Table offset is misaligned.', 'XRef Table')
+                        #self.__error_control('SpecViolation', 'Table offset is misaligned.', 'XRef Table')
+                        self.__update_mal_index(1, 5)
 
             if pdf['Body'].has_key('XRef Tables'):
                 for i in range(0, len(pdf['Body']['XRef Tables'])):
@@ -1092,17 +1088,20 @@ class PyDF2JSON(object):
                             if entry[2] == 'n':
                                 oentry = int(entry[0])
                                 if not omap['IO Offsets'].has_key(oentry):
-                                    self.__error_control('SpecViolation', 'There is no indirect object located at ' + str(oentry), 'XRef Table')
+                                    #self.__error_control('SpecViolation', 'There is no indirect object located at ' + str(oentry), 'XRef Table')
+                                    self.__update_mal_index(1, 5)
 
             # It MIGHT be legal to redefine XRef Streams without any kind of updating like we see with XRef Tables
             # Ignoring this code for now. If I find it's not leegal... I will turn this back on.
             # Example: Download this from VirusTotal: 1E51C658D922410306F042FB12FFEB9F
             # Linearized PDF's may also be a problem for this code :/
-            #if omap.has_key('XRS Offsets'):
-            #    for i in omap['XRS Offsets']:
-            #        tmpo = str(i)
-            #        if not tmpo in pdf['Body']['Start XRef Entries']:
-            #            self.__error_control('SpecViolation', 'Table offset is misaligned.', 'XRef Stream')
+            # I might have fixed it. Uncommenting...
+            if omap.has_key('XRS Offsets'):
+                for i in omap['XRS Offsets']:
+                    tmpo = str(i)
+                    if not tmpo in pdf['Body']['Start XRef Entries']:
+                        #self.__error_control('SpecViolation', 'Table offset is misaligned.', 'XRef Stream')
+                        self.__update_mal_index(1, 5)
 
             # It is highly unlikely that tampering has resulted in the offsets being wrong inside a compressed object
             # stream so, here we check only for the offsets of "uncompressed" 'Used Objects'
@@ -1114,7 +1113,8 @@ class PyDF2JSON(object):
                                 entry = pdf['Body']['XRef Streams'][i][j]['Value'].split(' ')
                                 oentry = int(entry[0])
                                 if not omap['IO Offsets'].has_key(oentry):
-                                    self.__error_control('SpecViolation', 'There is no indirect object located at ' + str(oentry), 'XRef Stream')
+                                    #self.__error_control('SpecViolation', 'There is no indirect object located at ' + str(oentry), 'XRef Stream')
+                                    self.__update_mal_index(1, 5)
 
             return
 
@@ -1404,7 +1404,10 @@ class PyDF2JSON(object):
                     if stream_type == '':
                         stream_type = 'Unknown'
                     if stream_type == 'pdf_mcid':
-                        cur_stream = self.__parse_mcid(cur_stream)
+                        try:
+                            cur_stream = self.__parse_mcid(cur_stream)
+                        except:
+                            pass
                 stream_hash = self.__hash_stream(cur_stream)
                 bod['Indirect Objects'][i_object_index][obj_name]['Stream Hashes'] = stream_hash
                 if self.dump_streams:
@@ -2036,6 +2039,13 @@ class PyDF2JSON(object):
                             cur_val['Value Type'] = None
                             cur_val['Value'] = ''
                         body['Indirect Objects'].append({cur_obj: cur_val})
+                        if type(deob_ret['Value']) == dict:
+                            if deob_ret['Value'].has_key('Type'):
+                                if deob_ret['Value']['Type']['Value'] == 'XRef':
+                                    if deob_ret['Value'].has_key('Prev'):
+                                        if not body.has_key('Start XRef Entries'):
+                                            body['Start XRef Entries'] = []
+                                        body['Start XRef Entries'].append(deob_ret['Value']['Prev']['Value'])
                         del cur_val
                         if re.match('endobj', x[c:]):
                             c += 6
@@ -2116,6 +2126,10 @@ class PyDF2JSON(object):
                     if not body.has_key('Start XRef Entries'):
                         body['Start XRef Entries'] = []
                     body['Start XRef Entries'].append(deob_ret['Value']['XRefStm']['Value'])
+                if deob_ret['Value'].has_key('Prev'):
+                    if not body.has_key('Start XRef Entries'):
+                        body['Start XRef Entries'] = []
+                    body['Start XRef Entries'].append(deob_ret['Value']['Prev']['Value'])
                 body['Trailers'].append(deob_ret)
             if re.match('startxref', x[char_loc:char_loc + 9]):
                 if not body.has_key('Start XRef Entries'):
@@ -3244,6 +3258,9 @@ class PyDF2JSON(object):
                     pdf_pass = ''
                 else:
                     pdf_pass = self.pdf_password
+
+                if not 'Crypto.Cipher.AES' in sys.modules:
+                    raise Exception('Missing pycrypto. pip install pycrypto')
 
                 file_key, perms = self.__2A(pdf_pass, O.decode('hex'), U.decode('hex'),
                              OE.decode('hex'), UE.decode('hex'), Perms.decode('hex'), P)

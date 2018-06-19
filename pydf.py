@@ -196,6 +196,23 @@ def main():
         for i in jsonpdf['Document Hashes']:
             print '\t{:<10} {:<0}'.format(i, jsonpdf['Document Hashes'][i])
 
+        tmp_index = ''
+        for i in summary['Malware Index']:
+            tmp_index += format(i, 'x').zfill(2)
+
+
+        if int(tmp_index, 16) > 0:
+            print '\nMalware Index'
+            for i in range(0, len(summary['Malware Index'])):
+                tmp_num = summary['Malware Index'][i]
+                if tmp_num > 9:
+                    if i == 7:
+                        print '\t' + str(tmp_num) + ' instances of unnecessary white space.'
+                if tmp_num > 0:
+                    if i == 5:
+                        print '\t' + str(tmp_num) + ' misaligned objects or cross-reference tables.'
+                    if i == 6:
+                        print '\t' + str(tmp_num) + ' unnecessary encodings of named objects. Anti-analysis technique.'
 
 if __name__ == '__main__':
     main()
