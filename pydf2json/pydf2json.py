@@ -1591,6 +1591,9 @@ class PyDF2JSON(object):
                     if decodeparms == '':
                         # Assume crypt filer name = 'Identity' and skip decryption
                         return my_stream
+                    else:
+                        # Assume crypt filer name = 'StdCF' and decrypt
+                        my_stream = self.__decrypt(my_stream, 'stream', cur_obj, 'StdCF')
                 else:
                     my_stream = self.__decrypt(my_stream, 'stream', cur_obj)
 
@@ -3396,7 +3399,7 @@ class PyDF2JSON(object):
         return ''.join(out)
 
 
-    def __decrypt(self, x, data_type, cur_obj):
+    def __decrypt(self, x, data_type, cur_obj, hndlr = None):
         data_is_crypted = False # May seem redundant but it's not. Global encryption may be in effcet but this piece of data may not be encrypted.
         handler = self.__crypt_handler_info # Didn't feel like keeping having to type 'self' while accessing this
 
@@ -3406,7 +3409,8 @@ class PyDF2JSON(object):
                     data_is_crypted = True
                     new_str = self.__escaped_string_replacement(x)
                 else:
-                    return x
+                    # Assume string is not encrypted and return decoded hex value
+                    return x.decode('hex')
             if handler['version'] <= 3:
                 data_is_crypted = True
                 new_str = self.__escaped_string_replacement(x)
@@ -3415,7 +3419,7 @@ class PyDF2JSON(object):
 
         if data_type == 'stream':
             if handler['version'] == 4 or handler['version'] == 5:
-                if handler['StmF'] == 'StdCF': # Assume stream is encrypted with standard handler
+                if handler['StmF'] == 'StdCF' or hndlr == 'StdCF': # Assume stream is encrypted with standard handler
                     data_is_crypted = True
                 else:
                     return x
@@ -3433,8 +3437,12 @@ class PyDF2JSON(object):
                     new_str = self.__aes_crypt(new_str[32:].decode('hex'), handler['o_keys'][cur_obj],
                                                AES.MODE_CBC, IV, padding=False, function='decrypt')
                 if data_type == 'stream':
-                    new_str = self.__aes_crypt(new_str[16:], handler['o_keys'][cur_obj],
-                                               AES.MODE_CBC, IV, padding=False, function='decrypt')
+                    if hndlr == 'StdCF':
+                        new_str = self.__aes_crypt(new_str[16:], handler['file_key'],
+                                                   AES.MODE_CBC, IV, padding=False, function='decrypt')
+                    if hndlr == None:
+                        new_str = self.__aes_crypt(new_str[16:], handler['o_keys'][cur_obj],
+                                                   AES.MODE_CBC, IV, padding=False, function='decrypt')
 
                 # Remove RFC 2898 padding
                 pad = ord(new_str[-1:])
