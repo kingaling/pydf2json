@@ -1755,7 +1755,7 @@ class PyDF2JSON(object):
             else: # Last entry
                 curr_obj = objects[new_obj_stream[i]['Offset']:]
             curr_obj += ' endobj'
-            i_obj_data = self.__i_object_def_parse(curr_obj, 0, 'obj', 'NO_DECRYPT')
+            i_obj_data = self.__i_object_def_parse(curr_obj, 0, 'objstm', 'NO_DECRYPT')
             final_obj_stream['Indirect Objects'][curr_i_object] = {}
             if not i_obj_data[0] == '':
                 final_obj_stream['Indirect Objects'][curr_i_object]['Value'] = i_obj_data[0]['Value']
@@ -2823,16 +2823,14 @@ class PyDF2JSON(object):
                 diff = 0
                 cur_depth = x[i]['Depth']
                 if cur_depth < prev_depth:
-                    pappa_depth = prev_depth - cur_depth
-                    diff = depth_roots[cur_depth]['Depth Dimensions']['End'] - (x[i - 1]['End'] + 1)
-                    data = def_obj_data[(x[i - 1]['End'] + 1):depth_roots[cur_depth]['Depth Dimensions']['End']]
-                    for j in range(0, pappa_depth):
+                    for j in range((len(depth_roots) - 1), (cur_depth - 1), -1):
+                        diff = depth_roots[j]['Depth Dimensions']['End'] - (x[depth_tracker[prev_depth][1]]['End'] + 1)
+                        data = def_obj_data[(x[depth_tracker[prev_depth][1]]['End'] + 1):depth_roots[j]['Depth Dimensions']['End']]
                         depth_tracker.pop(prev_depth)
                         depth_roots.pop(prev_depth - 1)
                         prev_depth -= 1
-                    pappa_depth = 0
-                    if diff > 0:
-                        __check_it(data)
+                        if diff > 0:
+                            __check_it(data)
                 prev_depth = cur_depth
                 if not depth_tracker.has_key(cur_depth):
                     depth_tracker[cur_depth] = []
@@ -2856,7 +2854,7 @@ class PyDF2JSON(object):
                 else:
                     diff = x[depth_tracker[cur_depth][1]]['Offset'] - (x[depth_tracker[cur_depth][0]]['Length'] + (x[depth_tracker[cur_depth][0]]['Offset'])+ 1)
                     data = def_obj_data[(x[depth_tracker[cur_depth][0]]['Offset']+x[depth_tracker[cur_depth][0]]['Length']):x[depth_tracker[cur_depth][1]]['Offset']]
-                if diff > 0: # Extra space delimiting chars detected
+                if diff > 0: # Space delimiting chars detected
                     __check_it(data)
             end = x[-1]['End'] +1
             for i in range(len(depth_roots), 0, -1):
@@ -2882,7 +2880,7 @@ class PyDF2JSON(object):
             c = char_loc
             break
         # We're at the start of an indirect object definition
-        if o_type == 'obj':
+        if o_type == 'obj' or o_type == 'objstm':
             def_end = re.search('(endobj|stream\x0D|stream\x0A)', x_str[c:]).start()
         if o_type == 'trailer':
             if re.search('startxref', x_str[c:]):
@@ -2891,7 +2889,8 @@ class PyDF2JSON(object):
                 self.__error_control('SpecViolation', 'startxref entry is missing')
         def_obj_data = x_str[c:c + def_end]
         x = __object_search(def_obj_data)
-        __find_xs_whitespace(x, cur_obj, def_obj_data) # Disable the whitespace checker here if gens false positives.
+        if not o_type == 'objstm':
+            __find_xs_whitespace(x, cur_obj, def_obj_data) # Disable the whitespace checker here if gens false positives.
         if o_type == 'trailer':
             def_obj_data = def_obj_data[0:x[0]['Length']]
         y = __assemble_object_structure(def_obj_data, x, cur_obj)
