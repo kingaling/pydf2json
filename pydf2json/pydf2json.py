@@ -2819,6 +2819,9 @@ class PyDF2JSON(object):
             depth_roots = {}
             depth_roots[0] = {'Depth Dimensions': x[0]}
             prev_depth = 0
+            threshold = 3 # Whitespace threshold. Too small and it triggers F+.
+                          # Setting to 3 to provide leeway for misc PDF creation applications
+
             for i in range(1, len(x)):
                 diff = 0
                 cur_depth = x[i]['Depth']
@@ -2829,7 +2832,7 @@ class PyDF2JSON(object):
                         depth_tracker.pop(prev_depth)
                         depth_roots.pop(prev_depth - 1)
                         prev_depth -= 1
-                        if diff > 0:
+                        if diff > threshold:
                             __check_it(data)
                 prev_depth = cur_depth
                 if not depth_tracker.has_key(cur_depth):
@@ -2854,13 +2857,13 @@ class PyDF2JSON(object):
                 else:
                     diff = x[depth_tracker[cur_depth][1]]['Offset'] - (x[depth_tracker[cur_depth][0]]['Length'] + (x[depth_tracker[cur_depth][0]]['Offset'])+ 1)
                     data = def_obj_data[(x[depth_tracker[cur_depth][0]]['Offset']+x[depth_tracker[cur_depth][0]]['Length']):x[depth_tracker[cur_depth][1]]['Offset']]
-                if diff > 0: # Space delimiting chars detected
+                if diff > threshold:
                     __check_it(data)
             end = x[-1]['End'] +1
             for i in range(len(depth_roots), 0, -1):
                 diff = (depth_roots[i - 1]['Depth Dimensions']['End'] + 1) - end
                 data = def_obj_data[end:(depth_roots[i - 1]['Depth Dimensions']['End'] + 1)]
-                if diff > 0:
+                if diff > threshold:
                     __check_it(data)
                 end += diff
             return
@@ -2889,7 +2892,7 @@ class PyDF2JSON(object):
                 self.__error_control('SpecViolation', 'startxref entry is missing')
         def_obj_data = x_str[c:c + def_end]
         x = __object_search(def_obj_data)
-        if not o_type == 'objstm':
+        if not o_type == 'objstm': # Exclude compressed object streams from the whitespace check.
             __find_xs_whitespace(x, cur_obj, def_obj_data) # Disable the whitespace checker here if gens false positives.
         if o_type == 'trailer':
             def_obj_data = def_obj_data[0:x[0]['Length']]
