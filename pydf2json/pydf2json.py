@@ -174,6 +174,7 @@ class PyDF2JSON(object):
 
         # Proceed with PDF body processing
         try:
+            self.__overall_mal_index = [0, 0, 0, 0, 0, 0, 0, 0]
             PDF['Body'] = self.__body_scan(x, s_offset, summary)
         except Exception as e:
             raise e
@@ -1754,7 +1755,7 @@ class PyDF2JSON(object):
             else: # Last entry
                 curr_obj = objects[new_obj_stream[i]['Offset']:]
             curr_obj += ' endobj'
-            i_obj_data = self.__i_object_def_parse(curr_obj, 0, 'obj', 'NO_DECRYPT')
+            i_obj_data = self.__i_object_def_parse(curr_obj, 0, 'objstm', 'NO_DECRYPT')
             final_obj_stream['Indirect Objects'][curr_i_object] = {}
             if not i_obj_data[0] == '':
                 final_obj_stream['Indirect Objects'][curr_i_object]['Value'] = i_obj_data[0]['Value']
@@ -1970,8 +1971,8 @@ class PyDF2JSON(object):
                 if not body.has_key('Arbitrary Data'):
                             body['Arbitrary Data'] = []
                 c += 1
-                if re.search('(\d{1,10}\s\d{1,10}\sobj|xref|trailer|startxref|%%EOF)', x[c:]):
-                    end_arb = re.search('(\d{1,10}\s\d{1,10}\sobj|xref|trailer|startxref|%%EOF)', x[c:]).start()
+                if re.search('(\d{1,10}\s+\d{1,10}\s+obj|xref|trailer|startxref|%%EOF)', x[c:]):
+                    end_arb = re.search('(\d{1,10}\s+\d{1,10}\s+obj|xref|trailer|startxref|%%EOF)', x[c:]).start()
                     arb_data += x[c:c + end_arb]
                     c += end_arb
                     arb_type, arb_data = self.__process_arbitrary_data(arb_data)
@@ -2009,7 +2010,7 @@ class PyDF2JSON(object):
                 continue
             c = char_loc
             current_position = c
-            if re.match('\d{1,10}\s\d{1,10}\sobj', x[char_loc:char_loc + 26]):
+            if re.match('\d{1,10}\s+\d{1,10}\s+obj', x[char_loc:char_loc + 26]):
                 # See if we've encountered an indirect object. We probably have.
                 if re.search('obj', x[char_loc:]):
                     search_end = re.search('obj', x[char_loc:]).end()
@@ -2785,6 +2786,89 @@ class PyDF2JSON(object):
                     temp_dict = {'Value Type': k_type, 'Value': k_val}
                     return temp_dict
 
+
+        def __find_xs_whitespace(x, obj, def_obj_data):
+            def __compute_depth(x, depth, end):
+                i = 0
+                while i < len(x):
+                    if x[i]['Offset'] > end:
+                        break
+                    if x[i]['Type'] == 'Dict' or x[i]['Type'] == 'Array':
+                        if not x[i].has_key('Depth'):
+                            x[i]['Depth'] = depth
+                            last_i = __compute_depth(x[i + 1:], (depth + 1), x[i]['End'])
+                            i += (last_i + 1)
+                    else:
+                        if not x[i].has_key('Depth'):
+                            x[i]['Depth'] = depth
+                            i += 1
+                return i
+
+
+            def __check_it(data):
+                if re.search('\x20\x0D', data) or re.search('\x20\x0A', data) or re.search('\x0D\x20', data) or \
+                        re.search('\x0A\x20', data) or len(re.findall('\x20', data)) > 1 or \
+                        len(re.findall('\x0D', data)) > 1 or len(re.findall('\x0A', data)) > 1:
+                    self.__update_mal_index(1, 7)
+                return
+
+
+            __compute_depth(x, 0, x[0]['End'])
+            depth_tracker = {}
+            depth_tracker[0] = [0, 0]
+            depth_roots = {}
+            depth_roots[0] = {'Depth Dimensions': x[0]}
+            prev_depth = 0
+            threshold = 3 # Whitespace threshold. Too small and it triggers F+.
+                          # Setting to 3 to provide leeway for misc PDF creation applications
+
+            for i in range(1, len(x)):
+                diff = 0
+                cur_depth = x[i]['Depth']
+                if cur_depth < prev_depth:
+                    for j in range((len(depth_roots) - 1), (cur_depth - 1), -1):
+                        diff = depth_roots[j]['Depth Dimensions']['End'] - (x[depth_tracker[prev_depth][1]]['End'] + 1)
+                        data = def_obj_data[(x[depth_tracker[prev_depth][1]]['End'] + 1):depth_roots[j]['Depth Dimensions']['End']]
+                        depth_tracker.pop(prev_depth)
+                        depth_roots.pop(prev_depth - 1)
+                        prev_depth -= 1
+                        if diff > threshold:
+                            __check_it(data)
+                prev_depth = cur_depth
+                if not depth_tracker.has_key(cur_depth):
+                    depth_tracker[cur_depth] = []
+                    depth_tracker[cur_depth].append(i)
+                else:
+                    depth_tracker[cur_depth][0] = depth_tracker[cur_depth][1]
+                    depth_tracker[cur_depth].pop(1)
+
+                depth_tracker[cur_depth].append(i)
+                if depth_tracker[cur_depth][1] == depth_tracker[cur_depth][0]:
+                    first_seen = True # First time depth has been encountered.
+                    depth_roots[cur_depth - 1] = {'Depth Dimensions': x[i - 1]}
+                else:
+                    first_seen = False
+                if first_seen:
+                    if x[depth_tracker[cur_depth - 1][1]]['Type'] == 'Dict':
+                        diff = x[depth_tracker[cur_depth][1]]['Offset'] - (x[depth_tracker[cur_depth -1][1]]['Offset'] + 2)
+                    if x[depth_tracker[cur_depth - 1][1]]['Type'] == 'Array':
+                        diff = x[depth_tracker[cur_depth][1]]['Offset'] - (x[depth_tracker[cur_depth -1][1]]['Offset'] + 1)
+                    data = def_obj_data[x[depth_tracker[cur_depth - 1][1]]['Offset']:x[depth_tracker[cur_depth][1]]['Offset']]
+                else:
+                    diff = x[depth_tracker[cur_depth][1]]['Offset'] - (x[depth_tracker[cur_depth][0]]['Length'] + (x[depth_tracker[cur_depth][0]]['Offset'])+ 1)
+                    data = def_obj_data[(x[depth_tracker[cur_depth][0]]['Offset']+x[depth_tracker[cur_depth][0]]['Length']):x[depth_tracker[cur_depth][1]]['Offset']]
+                if diff > threshold:
+                    __check_it(data)
+            end = x[-1]['End'] +1
+            for i in range(len(depth_roots), 0, -1):
+                diff = (depth_roots[i - 1]['Depth Dimensions']['End'] + 1) - end
+                data = def_obj_data[end:(depth_roots[i - 1]['Depth Dimensions']['End'] + 1)]
+                if diff > threshold:
+                    __check_it(data)
+                end += diff
+            return
+
+
         c = s_point
         l = len(x_str)
         def_end = 0
@@ -2799,7 +2883,7 @@ class PyDF2JSON(object):
             c = char_loc
             break
         # We're at the start of an indirect object definition
-        if o_type == 'obj':
+        if o_type == 'obj' or o_type == 'objstm':
             def_end = re.search('(endobj|stream\x0D|stream\x0A)', x_str[c:]).start()
         if o_type == 'trailer':
             if re.search('startxref', x_str[c:]):
@@ -2808,6 +2892,8 @@ class PyDF2JSON(object):
                 self.__error_control('SpecViolation', 'startxref entry is missing')
         def_obj_data = x_str[c:c + def_end]
         x = __object_search(def_obj_data)
+        if not o_type == 'objstm': # Exclude compressed object streams from the whitespace check.
+            __find_xs_whitespace(x, cur_obj, def_obj_data) # Disable the whitespace checker here if gens false positives.
         if o_type == 'trailer':
             def_obj_data = def_obj_data[0:x[0]['Length']]
         y = __assemble_object_structure(def_obj_data, x, cur_obj)
