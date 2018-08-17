@@ -12,7 +12,7 @@ long_description = open(os.path.join(here, 'README.rst'), 'rt').read()
 
 setup(
     name = 'pydf2json',
-    version = '2.2.1',
+    version = '2.2.2',
     packages=['pydf2json', 'pydf2json.scripts'],
     url = 'https://github.com/xamiel/pydf2json',
     license = 'GPL-3.0',

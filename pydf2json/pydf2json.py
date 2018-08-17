@@ -31,7 +31,7 @@ except Exception as e:
     pass
 
 
-__version__ = '2.2.1'
+__version__ = '2.2.2'
 __author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
@@ -1105,10 +1105,10 @@ class PyDF2JSON(object):
                         if obj['Win']['Value']['F']['Value Type'] == 'Literal String':
                             win_app = obj['Win']['Value']['F']['Value']
                             launchie.append({'Win Exec': win_app})
-            if obj.has_key('Mac'):
-                print 'Mac execution object'
-            if obj.has_key('Unix'):
-                print 'Unix / Linux execution object'
+            #if obj.has_key('Mac'):
+            #    print 'Mac execution object'
+            #if obj.has_key('Unix'):
+            #    print 'Unix / Linux execution object'
             return
 
 
@@ -2917,7 +2917,10 @@ class PyDF2JSON(object):
 
             for i in range(1, len(x)):
                 diff = 0
-                cur_depth = x[i]['Depth']
+                if x[i].has_key('Depth'):
+                    cur_depth = x[i]['Depth']
+                else:
+                    cur_depth = prev_depth
                 if cur_depth < prev_depth:
                     for j in range((len(depth_roots) - 1), (cur_depth - 1), -1):
                         diff = depth_roots[j]['Depth Dimensions']['End'] - (x[depth_tracker[prev_depth][1]]['End'] + 1)
