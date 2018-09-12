@@ -31,7 +31,7 @@ except Exception as e:
     pass
 
 
-__version__ = '2.2.2'
+__version__ = '2.2.3'
 __author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
@@ -3431,7 +3431,7 @@ class PyDF2JSON(object):
 
                 # Test if file key is valid
                 u_check = self.__confirm_file_key(pad, doc_id, file_key, self.__crypt_handler_info['revision'])
-                if u_check == U[0:32].decode('hex'):
+                if u_check[0:16] == U[0:32].decode('hex'):
                     self.__crypt_handler_info['file_key'] = file_key
                 else:
                     raise Exception('Encrypted document requires a password. Aborting analysis.')

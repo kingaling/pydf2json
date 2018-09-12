@@ -21,7 +21,7 @@ import argparse
 import re
 
 
-__version__ = '2.2.2'
+__version__ = '2.2.3'
 __author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
