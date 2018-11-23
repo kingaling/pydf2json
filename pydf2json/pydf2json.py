@@ -2976,6 +2976,10 @@ class PyDF2JSON(object):
                 # Got spaces in between objects. Proceed to next position.
                 c += 1
                 continue
+            if re.match('%', x_str[char_loc]):
+                # Got comment before object definition
+                c = self.__line_scan(x_str, char_loc)[1]
+                continue
             c = char_loc
             break
         # We're at the start of an indirect object definition
