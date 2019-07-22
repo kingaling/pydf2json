@@ -1696,6 +1696,9 @@ class PyDF2JSON(object):
 
         new_stream = my_stream
 
+        if re.search('[0-9]{1,6}\s[0-9]{1,6}\sR', filter):
+            return new_stream
+
         if filter not in ignore_filters:
             if filter in known_not_implemented:
                 return new_stream
