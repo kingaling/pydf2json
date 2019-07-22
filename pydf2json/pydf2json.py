@@ -266,16 +266,25 @@ class PyDF2JSON(object):
         except Exception as e:
             raise e
 
+         # Create object map.
+        omap = {}
+        omap['IO'] = {}
+        omap['OS'] = {}
+        omap['IO Offsets'] = {}
+        omap['XRT Offsets'] = []
+        omap['XRS Offsets'] = []
+        self.__assemble_map(PDF['Body'], omap)
+
         #PDF['Body'] = self.__body_scan(x, s_offset) # Debugging...
         # The above line got all indirect objects, trailers, xref tables etc
         # and preserved the position and length of all streams.
         # Now go get the streams... :)
         try:
-            self.__process_streams(x, PDF['Body'], summary)
+            self.__process_streams(x, PDF['Body'], summary, omap)
         except Exception as e:
             raise e
 
-         # Create object map.
+         # Recreate object map to account for decoded object streams.
         omap = {}
         omap['IO'] = {}
         omap['OS'] = {}
@@ -1352,7 +1361,7 @@ class PyDF2JSON(object):
         return e
 
 
-    def __process_streams(self, x, bod, summary):
+    def __process_streams(self, x, bod, summary, omap):
         stream_displays = {
             'ttf': self.show_ttf,
             'bitmap': self.show_bitmaps,
@@ -1433,11 +1442,11 @@ class PyDF2JSON(object):
                         try:
                             if i[obj_name]['Value'].has_key('Type'):
                                 if not i[obj_name]['Value']['Type']['Value'] == 'XRef':
-                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name)
+                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name, omap)
                                 else:
-                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, 'NO_DECRYPT')
+                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, 'NO_DECRYPT', omap)
                             else:
-                                cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name)
+                                cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name, omap)
                         except SpecViolation as e:
                             self.__error_control(e.__repr__(), e.message, obj_name)
                         except Exception as e:
@@ -1648,7 +1657,7 @@ class PyDF2JSON(object):
         return stream_type
 
 
-    def __filter_parse(self, my_stream, filter, decodeparms, cur_obj):
+    def __filter_parse(self, my_stream, filter, decodeparms, cur_obj, omap):
         ignore_filters = {
             'DCTDecode',
             'DCT',
@@ -3282,11 +3291,16 @@ class PyDF2JSON(object):
             i_val = i.values()[0]
             if i_val == 'XRef Tables':
                 for j in trailers[i_val]:
-                    for k in j[1]:
-                        tmp_offset = int(re.match('\d{10}', k).group())
-                        if re.match(i_key, x[tmp_offset:tmp_offset + 10]): # We have found the offset of our indirect object :)
-                            if not tmp_offset in offset:
-                                offset.append(tmp_offset)
+                    for k in j:
+                    #for k in j[1]:
+                        if type(k) == dict:
+                            if k.has_key('Offset'):
+                                continue
+                        for l in k:
+                            tmp_offset = int(re.match('\d{10}', l).group())
+                            if re.match(i_key, x[tmp_offset:tmp_offset + 10]): # We have found the offset of our indirect object :)
+                                if not tmp_offset in offset:
+                                    offset.append(tmp_offset)
             if i_val == 'XRef Streams':
                 for j in trailers[i_val]:
                     for k in j:
