@@ -23,9 +23,10 @@ import sys
 import struct
 from tempfile import gettempdir
 from platform import system as platform_sys
+import pdfcrypt
 
-# We need this for AES decryption. If I get bored, I may reinvent the wheel at a later date after reading the NIST docs.
 try:
+    # noinspection PyPackageRequirements
     from Crypto.Cipher import AES
 except Exception as e:
     pass
@@ -129,6 +130,9 @@ class LZWDecoder(object):
         return
 
 class PyDF2JSON(object):
+
+    # Instantiate pdf crypto functions
+    crypto = pdfcrypt.PDFCrypto()
 
     # password: Use this password to decrypt document.
     pdf_password = None
@@ -247,9 +251,6 @@ class PyDF2JSON(object):
 
         # Check for encryption
         # If found set global file key
-        # Inside __body_scan() we're going to want to decrypt literal strings as they occur
-        # That means __i_object_def_parse and __assemble_object_structure need to have the current object number passed to them
-        # Or... in __body_scan, everytime I start a new object, I'll calculate an object key that can be read globally
         try:
             self.__get_encryption_handler(x, summary)
         except Exception as e:
@@ -1454,7 +1455,7 @@ class PyDF2JSON(object):
                 else:
                     if self.__is_crypted:
                         if not obj_name in self.__crypt_handler_info['o_ignore']:
-                            cur_stream = self.__decrypt(cur_stream, 'stream', obj_name)
+                            cur_stream = self.crypto.decrypt(self.__crypt_handler_info, cur_stream, 'stream', obj_name)
 
                 if not cur_error == '':
                     bod['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
@@ -1690,9 +1691,9 @@ class PyDF2JSON(object):
                         return my_stream
                     else:
                         # Assume crypt filer name = 'StdCF' and decrypt
-                        my_stream = self.__decrypt(my_stream, 'stream', cur_obj, 'StdCF')
+                        my_stream = self.crypto.decrypt(self.__crypt_handler_info, my_stream, 'stream', cur_obj, 'StdCF')
                 else:
-                    my_stream = self.__decrypt(my_stream, 'stream', cur_obj)
+                    my_stream = self.crypto.decrypt(self.__crypt_handler_info, my_stream, 'stream', cur_obj)
 
         new_stream = my_stream
 
@@ -2127,7 +2128,10 @@ class PyDF2JSON(object):
                     if s_object[2] > 0:
                         self.__update_mal_index(s_object[2], 7)
                     if self.__is_crypted:
-                        self.__crypt_handler_info['o_keys'][cur_obj] = self.__gen_obj_key(self.__crypt_handler_info['file_key'], cur_obj)
+                        self.__crypt_handler_info['o_keys'][cur_obj] = self.crypto.gen_obj_key(self.__crypt_handler_info['file_key'], \
+                                                                                               self.__crypt_handler_info['key_length'], \
+                                                                                               self.__crypt_handler_info['method'], \
+                                                                                               cur_obj)
                     if s_object[0] == 'obj': # We have a valid indirect object
                         c += search_end
                         if not body.has_key('Indirect Objects'):
@@ -2772,7 +2776,7 @@ class PyDF2JSON(object):
                         pos = p_type[1] + 1
                         if self.__is_crypted:
                             if not cur_obj in self.__crypt_handler_info['o_ignore']:
-                                k_val = self.__decrypt(k_val.encode('hex'), k_type, cur_obj)
+                                k_val = self.crypto.decrypt(self.__crypt_handler_info, k_val.encode('hex'), k_type, cur_obj)
 
                     if p_type[0] == 'Dict':
                         k_type = 'Dictionary'
@@ -2826,7 +2830,7 @@ class PyDF2JSON(object):
                         key = True
                         if self.__is_crypted:
                             if not cur_obj in self.__crypt_handler_info['o_ignore']:
-                                v_val = self.__decrypt(v_val.encode('hex'), v_type, cur_obj)
+                                v_val = self.crypto.decrypt(self.__crypt_handler_info, v_val.encode('hex'), v_type, cur_obj)
 
                     if p_type[0] == 'Dict':
                         v_type = 'Dictionary'
@@ -3364,12 +3368,12 @@ class PyDF2JSON(object):
                 O = ret_dict[0]['Value']['O']['Value']
             if ret_dict[0]['Value']['O']['Value Type'] == 'Literal String':
                 O = ret_dict[0]['Value']['O']['Value'].encode('hex')
-                O = self.__escaped_string_replacement(O)
+                O = self.crypto.escaped_string_replacement(O)
             if ret_dict[0]['Value']['U']['Value Type'] == 'Hexidecimal String':
                 U = ret_dict[0]['Value']['U']['Value']
             if ret_dict[0]['Value']['U']['Value Type'] == 'Literal String':
                 U = ret_dict[0]['Value']['U']['Value'].encode('hex')
-                U = self.__escaped_string_replacement(U)
+                U = self.crypto.escaped_string_replacement(U)
             if O == None or U == None:
                 raise Exception('Decryption error: O or U is invalid. Aborting analysis.')
 
@@ -3414,17 +3418,17 @@ class PyDF2JSON(object):
                     OE = ret_dict[0]['Value']['OE']['Value']
                 if ret_dict[0]['Value']['OE']['Value Type'] == 'Literal String':
                     OE = ret_dict[0]['Value']['OE']['Value'].encode('hex')
-                    OE = self.__escaped_string_replacement(OE)
+                    OE = self.crypto.escaped_string_replacement(OE)
                 if ret_dict[0]['Value']['UE']['Value Type'] == 'Hexidecimal String':
                     UE = ret_dict[0]['Value']['UE']['Value']
                 if ret_dict[0]['Value']['UE']['Value Type'] == 'Literal String':
                     UE = ret_dict[0]['Value']['UE']['Value'].encode('hex')
-                    UE = self.__escaped_string_replacement(UE)
+                    UE = self.crypto.escaped_string_replacement(UE)
                 if ret_dict[0]['Value']['Perms']['Value Type'] == 'Hexidecimal String':
                     Perms = ret_dict[0]['Value']['Perms']['Value']
                 if ret_dict[0]['Value']['Perms']['Value Type'] == 'Literal String':
                     Perms = ret_dict[0]['Value']['Perms']['Value'].encode('hex')
-                    Perms = self.__escaped_string_replacement(Perms)
+                    Perms = self.crypto.escaped_string_replacement(Perms)
                 if OE == None or UE == None or Perms == None:
                     raise Exception('Decryption error: OE or UE is invalid. Aborting analysis.')
 
@@ -3448,10 +3452,10 @@ class PyDF2JSON(object):
                         temp_pass = tmp_pass[0:64]
                     pdf_pass = temp_pass
 
-                file_key = self.__gen_file_key(pdf_pass, O, P, doc_id)
+                file_key = self.crypto.gen_file_key(self.__crypt_handler_info, pdf_pass, O, P, doc_id)
 
                 # Test if file key is valid
-                u_check = self.__confirm_file_key(pad, doc_id, file_key, self.__crypt_handler_info['revision'])
+                u_check = self.crypto.confirm_file_key(pad, doc_id, file_key, self.__crypt_handler_info['revision'])
                 if u_check[0:16] == U[0:32].decode('hex'):
                     self.__crypt_handler_info['file_key'] = file_key
                 else:
@@ -3460,7 +3464,7 @@ class PyDF2JSON(object):
             if V == 5:
                 # Blank password padding used by Adobe is NOT used for AESV3.
                 # Instead, set it to an empty string.
-                if self.pdf_password == None:
+                if self.pdf_password is None:
                     pdf_pass = ''
                 else:
                     pdf_pass = self.pdf_password
@@ -3468,327 +3472,8 @@ class PyDF2JSON(object):
                 if not 'Crypto.Cipher.AES' in sys.modules:
                     raise Exception('Missing pycrypto. pip install pycrypto')
 
-                file_key, perms = self.__2A(pdf_pass, O.decode('hex'), U.decode('hex'),
+                file_key, perms = self.crypto.func_2A(pdf_pass, O.decode('hex'), U.decode('hex'),
                              OE.decode('hex'), UE.decode('hex'), Perms.decode('hex'), P)
                 self.__crypt_handler_info['file_key'] = file_key
                 self.__crypt_handler_info['file_perms'] = perms
         return
-
-
-    def __gen_file_key(self, password, O, P, ID):
-        md = hashlib.md5()
-        md.update(password.decode('hex'))  # Input should have been hex string
-        md.update(O.decode('hex'))  # Input should have been hex string
-        md.update(P)                # Input should have already been decoded into hex value
-        md.update(ID.decode('hex')) # Input should have been hex string
-        key_size = self.__crypt_handler_info['key_length'] / 8
-        if self.__crypt_handler_info['version'] == 4:
-            if not self.__crypt_handler_info['encrypt_metadata']:
-                md.update('\xff\xff\xff\xff')
-        f_key = md.digest()
-
-        if self.__crypt_handler_info['revision'] >= 3:
-            for i in range(0, 50):
-                md = hashlib.md5()
-                md.update(f_key[0:key_size])
-                f_key = md.digest()
-
-        f_key = f_key[0:key_size]
-        return f_key
-
-
-    def __gen_obj_key(self, f_key, obj):
-        obj = obj.split()
-        key_size = self.__crypt_handler_info['key_length'] / 8
-        o_num = struct.pack('<L', int(obj[0]))[:3]
-        o_gen = struct.pack('<L', int(obj[1]))[:2]
-        salt = struct.pack('>L', 0x73416C54)
-        md = hashlib.md5()
-        md.update(f_key)
-        md.update(o_num)
-        md.update(o_gen)
-        if self.__crypt_handler_info['method'] == 'AESV2':
-            md.update(salt)
-
-        o_key = md.digest()
-        f_key_size = key_size + 5
-        if f_key_size > 16:
-            f_key_size = f_key_size - (f_key_size % 16)
-
-        return o_key[0:f_key_size]
-
-
-    def __escaped_string_replacement(self, x):
-        new_str = ''
-        skip = False
-        for i in range(0, len(x), ++2):
-            if skip:
-                skip = False
-                continue
-            tmp = x[i:i + 2]
-            if tmp == '5c':
-                esc_seq = tmp + x[i + 2:i + 4]
-                if esc_seq == '5c6e': # \n
-                    new_str += '0a'
-                    skip = True
-                if esc_seq == '5c72': # \r
-                    new_str += '0d'
-                    skip = True
-                if esc_seq == '5c74': # \t
-                    new_str += '09'
-                    skip = True
-                if esc_seq == '5c62': # \b
-                    new_str += '08'
-                    skip = True
-                if esc_seq == '5c66': # \f
-                    new_str += '0c'
-                    skip = True
-                if esc_seq == '5c28': # \(
-                    new_str += '28'
-                    skip = True
-                if esc_seq == '5c29': # \)
-                    new_str += '29'
-                    skip = True
-                if esc_seq == '5c5c': # \\
-                    new_str += '5c'
-                    skip = True
-            else:
-                new_str += tmp
-        return new_str
-
-
-    def __confirm_file_key(self, password, ID, file_key, revision):
-        md = hashlib.md5()
-        if revision >= 3:
-            md.update(password.decode('hex'))
-            md.update(ID.decode('hex'))
-
-            digest = md.digest()
-
-            cipher = self.__rc4_crypt(digest, file_key)
-
-            for i in range(0, 19):
-                key = ''
-
-                for j in file_key:
-                    key += (chr(ord(j) ^ (i + 1)))
-
-                cipher = self.__rc4_crypt(cipher, key)
-        else:
-            cipher = self.__rc4_crypt(password.decode('hex'), file_key)
-            return cipher
-
-        return cipher
-
-
-    def __rc4_crypt(self, data, key ):
-        S = range(256)
-        j = 0
-        out = []
-
-        #KSA Phase
-        for i in range(256):
-            j = (j + S[i] + ord( key[i % len(key)] )) % 256
-            S[i] , S[j] = S[j] , S[i]
-
-        #PRGA Phase
-        i = j = 0
-        for char in data:
-            i = ( i + 1 ) % 256
-            j = ( j + S[i] ) % 256
-            S[i] , S[j] = S[j] , S[i]
-            out.append(chr(ord(char) ^ S[(S[i] + S[j]) % 256]))
-
-        return ''.join(out)
-
-
-    def __decrypt(self, x, data_type, cur_obj, hndlr = None):
-        data_is_crypted = False # May seem redundant but it's not. Global encryption may be in effcet but this piece of data may not be encrypted.
-        handler = self.__crypt_handler_info # Didn't feel like keeping having to type 'self' while accessing this
-
-        if data_type == 'Literal String':
-            if handler['version'] == 4 or handler['version'] == 5:
-                if handler['StrF'] == 'StdCF': # Assume string is encrypted with standard handler
-                    data_is_crypted = True
-                    new_str = self.__escaped_string_replacement(x)
-                else:
-                    # Assume string is not encrypted and return decoded hex value
-                    return x.decode('hex')
-            if handler['version'] <= 3:
-                data_is_crypted = True
-                new_str = self.__escaped_string_replacement(x)
-        else:
-            new_str = x
-
-        if data_type == 'stream':
-            if handler['version'] == 4 or handler['version'] == 5:
-                if handler['StmF'] == 'StdCF' or hndlr == 'StdCF': # Assume stream is encrypted with standard handler
-                    data_is_crypted = True
-                else:
-                    return x
-            if handler['version'] <= 3:
-                data_is_crypted = True
-
-        if data_is_crypted:
-            if handler['method'] == 'AESV2':
-                if data_type == 'Literal String':
-                    IV = new_str[0:32].decode('hex')
-                if data_type == 'stream':
-                    IV = new_str[0:16]
-
-                if data_type == 'Literal String':
-                    new_str = self.__aes_crypt(new_str[32:].decode('hex'), handler['o_keys'][cur_obj],
-                                               AES.MODE_CBC, IV, padding=False, function='decrypt')
-                if data_type == 'stream':
-                    if hndlr == 'StdCF':
-                        new_str = self.__aes_crypt(new_str[16:], handler['file_key'],
-                                                   AES.MODE_CBC, IV, padding=False, function='decrypt')
-                    if hndlr == None:
-                        new_str = self.__aes_crypt(new_str[16:], handler['o_keys'][cur_obj],
-                                                   AES.MODE_CBC, IV, padding=False, function='decrypt')
-
-                # Remove RFC 2898 padding
-                pad = ord(new_str[-1:])
-                new_str = new_str[:-pad]
-                return new_str
-
-            if handler['method'] == 'AESV3':
-                if data_type == 'Literal String':
-                    IV = new_str[0:32].decode('hex')
-                if data_type == 'stream':
-                    IV = new_str[0:16]
-
-                if data_type == 'Literal String':
-                    new_str = self.__aes_crypt(new_str[32:].decode('hex'), handler['file_key'],
-                                               AES.MODE_CBC, IV, padding=False, function='decrypt')
-                if data_type == 'stream':
-                    new_str = self.__aes_crypt(new_str[16:], handler['file_key'], AES.MODE_CBC, IV,
-                                               padding=False, function='decrypt')
-                return new_str
-
-            if handler['method'] == 'V2' or handler['method'] == 'RC4':
-                if data_type == 'Literal String':
-                    new_str = self.__rc4_crypt(new_str.decode('hex'), handler['o_keys'][cur_obj])
-                if data_type == 'stream':
-                    new_str = self.__rc4_crypt(new_str, handler['o_keys'][cur_obj])
-                return new_str
-
-        return new_str
-
-
-    def __aes_crypt(self, plaintext, key, mode, iv, padding, function):
-        pad = len(plaintext) % 16
-        if pad == 0:
-            pad += 16
-        else:
-            pad = 16 - pad
-        padstr = ''
-        if padding:
-            for i in range(pad):
-                padstr += chr(pad)
-        else:
-            for i in range(pad):
-                padstr += '\x00'
-        plaintext += padstr
-
-        cryptor = AES.new(key, mode, iv)
-        if function == 'encrypt':
-            E = cryptor.encrypt(plaintext)
-        if function == 'decrypt':
-            E = cryptor.decrypt(plaintext)
-
-        if not padding:
-            return E[0:-pad]
-        else:
-            return E
-
-
-    # Version 5 / Revision 6 decryption algorithms
-    # Based the function names off of the algorithm names in the 320000-2:2017 spec.
-    def __2A(self, password, o, u, oe, ue, Perms, P):
-        def __get_filekey(password, o, u, oe, ue, check_type):
-            U = u[0:48]
-            u_hash = u[0:32]
-            uv_salt = u[32:40]
-            uk_salt = u[40:48]
-            o_hash = o[0:32]
-            ov_salt = o[32:40]
-            ok_salt = o[40:48]
-
-            IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-            found = False
-
-            if check_type == 'owner':
-                check = self.__2B(password + ov_salt + U, password, U, purpose='O_CHECK')
-            if check_type == 'user':
-                check = self.__2B(password + uv_salt, password, U, purpose='U_CHECK')
-
-            if check == o_hash:
-                # Owners password was used
-                key = self.__2B(password + ok_salt + U, password, U, purpose='O_CREATE')
-                file_key = self.__aes_crypt(oe, key, AES.MODE_CBC, IV, padding=False, function='decrypt')
-                found = True
-
-            if check == u_hash:
-                # Users password was used
-                key = self.__2B(password + uk_salt, password, U, purpose='U_CREATE')
-                file_key = self.__aes_crypt(ue, key, AES.MODE_CBC, IV, padding=False, function='decrypt')
-                found = True
-
-            if found:
-                return file_key
-            else:
-                return
-
-        # Check if this is the owners pass or users pass:
-        file_key =__get_filekey(password, o, u, oe, ue, check_type='owner')
-        if file_key == None:
-            file_key =__get_filekey(password, o, u, oe, ue, check_type='user')
-            if file_key == None:
-                raise Exception('Unable to decrypt document. Bad password?')
-
-
-        IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-        perms = self.__aes_crypt(Perms, file_key, AES.MODE_ECB, IV, padding=False, function='decrypt')
-
-        if P[0:4] == perms[0:4] and perms[9:12] == 'adb':
-            return file_key, perms
-        else:
-            raise SpecViolation('Perms string is non compliant.')
-
-
-    def __2B(self, input, password, h_salts, purpose):
-        md = hashlib.sha256()
-        md.update(input)
-        K = md.digest()
-
-        round = 0
-        while True:
-            round +=1
-
-            K1 = ''
-            for i in range(64):
-                if purpose == 'O_CHECK' or purpose == 'O_CREATE':
-                    K1 += password + K + h_salts # h_salts should equal a 48-byte U string; hash + v & k salts
-                else:
-                    K1 += password + K
-
-            key = K[0:16]
-            IV = K[16:32]
-            E = self.__aes_crypt(K1, key, AES.MODE_CBC, IV, padding=False, function='encrypt')
-
-            tmp_int = int(E[0:16].encode('hex'), 16)
-            modulus = tmp_int % 3
-            if modulus == 0:
-                md = hashlib.sha256()
-            if modulus == 1:
-                md = hashlib.sha384()
-            if modulus == 2:
-                md = hashlib.sha512()
-            md.update(E)
-            K = md.digest()
-            last_E = ord(E[-1:])
-            if round >= 64 and last_E <= ((round - 1) - 32):
-                break
-
-        return K[0:32]

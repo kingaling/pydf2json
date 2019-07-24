@@ -70,4 +70,4 @@ To Do
 -----
 
 1. Malware index
-    - Need to work on the malware index described on line 100 of pydf2json.py
+    - Need to work on the malware index described on line 186 of pydf2json.py

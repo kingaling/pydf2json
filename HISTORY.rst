@@ -10,6 +10,9 @@ Recent Activity
 
 History
 -------
+20190723 - Moved crypto functions into their own class
+    - I wanted the crypto functions separated because I have plans to use the library for my own pdf cracker. :)
+
 20180722 - Fixed Crypt filter logic
     - Discovered that the encryption key is calculated differently when a Crypt filter is used.
         - https://forums.adobe.com/thread/1938926
