@@ -1,5 +1,6 @@
 import hashlib
 import struct
+import sys
 try:
     # noinspection PyPackageRequirements
     from Crypto.Cipher import AES
@@ -47,13 +48,60 @@ class PDFCrypto(object):
                 new_str += tmp
         return new_str
 
+    def retreive_file_key(self, handler_info, pdf_password):
+        # Generate file_key based on Version/Revision
+        if handler_info['version'] < 5:
+            # Blank password padding used by Adobe...
+            pad = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
 
-    def gen_file_key(self, handler, password, O, P, ID):
+            if pdf_password is None:
+                pdf_pass = pad
+            else:
+                tmp_pass = pdf_password.encode('hex').upper()
+                lex = len(tmp_pass)
+                if lex < 64:
+                    short = 64 - lex
+                    temp_pass = tmp_pass + pad[0:short]
+                else:
+                    temp_pass = tmp_pass[0:64]
+                pdf_pass = temp_pass
+
+            file_key = self.gen_file_key(handler_info, pdf_pass)
+
+            # Test if file key is valid
+            u_check = self.confirm_file_key(handler_info, pad, file_key)
+            if u_check[0:16] == handler_info['U'][0:32].decode('hex'):
+                handler_info['file_key'] = file_key
+            else:
+                raise Exception('Encrypted document requires a password. Aborting analysis.')
+
+        if handler_info['version'] == 5:
+            # Blank password padding used by Adobe is NOT used for AESV3.
+            # Instead, set it to an empty string.
+            if pdf_password is None:
+                pdf_pass = ''
+            else:
+                pdf_pass = pdf_password
+
+            if not 'Crypto.Cipher.AES' in sys.modules:
+                raise Exception('Missing pycrypto. pip install pycrypto')
+
+            file_key, perms = self.func_2A(pdf_pass,
+                                                  handler_info['O'].decode('hex'),
+                                                  handler_info['U'].decode('hex'),
+                                                  handler_info['OE'].decode('hex'),
+                                                  handler_info['UE'].decode('hex'),
+                                                  handler_info['Perms'].decode('hex'),
+                                                  handler_info['P'])
+            handler_info['file_key'] = file_key
+            handler_info['file_perms'] = perms
+
+    def gen_file_key(self, handler, password):
         md = hashlib.md5()
         md.update(password.decode('hex'))  # Input should have been hex string
-        md.update(O.decode('hex'))  # Input should have been hex string
-        md.update(P)                # Input should have already been decoded into hex value
-        md.update(ID.decode('hex')) # Input should have been hex string
+        md.update(handler['O'].decode('hex'))  # Input should have been hex string
+        md.update(handler['P'])                # Input should have already been decoded into hex value
+        md.update(handler['doc_id'].decode('hex')) # Input should have been hex string
         key_size = handler['key_length'] / 8
         if handler['version'] == 4:
             if not handler['encrypt_metadata']:
@@ -68,7 +116,6 @@ class PDFCrypto(object):
 
         f_key = f_key[0:key_size]
         return f_key
-
 
     def gen_obj_key(self, f_key, key_size, method, obj):
         obj = obj.split()
@@ -90,12 +137,11 @@ class PDFCrypto(object):
 
         return o_key[0:f_key_size]
 
-
-    def confirm_file_key(self, password, ID, file_key, revision):
+    def confirm_file_key(self, handler, password, file_key):
         md = hashlib.md5()
-        if revision >= 3:
+        if handler['revision'] >= 3:
             md.update(password.decode('hex'))
-            md.update(ID.decode('hex'))
+            md.update(handler['doc_id'].decode('hex'))
 
             digest = md.digest()
 
@@ -113,7 +159,6 @@ class PDFCrypto(object):
             return cipher
 
         return cipher
-
 
     def rc4_crypt(self, data, key ):
         S = range(256)
@@ -134,7 +179,6 @@ class PDFCrypto(object):
             out.append(chr(ord(char) ^ S[(S[i] + S[j]) % 256]))
 
         return ''.join(out)
-
 
     def decrypt(self, handler, x, data_type, cur_obj, hndlr = None):
         data_is_crypted = False # May seem redundant but it's not. Global encryption may be in effcet but this piece of data may not be encrypted.
@@ -208,7 +252,6 @@ class PDFCrypto(object):
 
         return new_str
 
-
     def aes_crypt(self, plaintext, key, mode, iv, padding, function):
         pad = len(plaintext) % 16
         if pad == 0:
@@ -235,9 +278,6 @@ class PDFCrypto(object):
         else:
             return E
 
-
-    # Version 5 / Revision 6 decryption algorithms
-    # Based the function names off of the algorithm names in the 320000-2:2017 spec.
     def func_2A(self, password, o, u, oe, ue, Perms, P):
         def __get_filekey(password, o, u, oe, ue, check_type):
             U = u[0:48]
@@ -289,7 +329,6 @@ class PDFCrypto(object):
         else:
             raise Exception('SpecViolation: Perms string is non compliant.')
 
-
     def func_2B(self, input, password, h_salts, purpose):
         md = hashlib.sha256()
         md.update(input)
@@ -325,3 +364,4 @@ class PDFCrypto(object):
                 break
 
         return K[0:32]
+

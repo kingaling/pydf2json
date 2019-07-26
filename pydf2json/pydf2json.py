@@ -252,7 +252,7 @@ class PyDF2JSON(object):
         # Check for encryption
         # If found set global file key
         try:
-            self.__get_encryption_handler(x, summary)
+            self.get_encryption_handler(x, summary)
         except Exception as e:
             raise e
 
@@ -3161,7 +3161,7 @@ class PyDF2JSON(object):
         return file_name
 
 
-    def __get_encryption_handler(self, x, summary):
+    def get_encryption_handler(self, x, summary):
         xref_offsets = []
         xref_tables = []
         trailers = {}
@@ -3238,7 +3238,7 @@ class PyDF2JSON(object):
                                 trailers['XRef Tables'] = []
                             deob_ret['Offset'] = trailer_offset
                             trailers['Trailers'].append(deob_ret)
-                            doc_id = trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value']
+                            self.__crypt_handler_info['doc_id'] = trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value']
                             trailers['XRef Tables'].append(xref_tables)
                             break
                 if o_type == 'obj':
@@ -3268,7 +3268,7 @@ class PyDF2JSON(object):
                         self.__error_control('SpecViolation', 'trailer XRef stream is missing \'Length\' value', trailer)
                     stream_dimensions['Start'] = ret_stream[1]
                     trailers['Indirect Objects'][index][trailer]['Stream Dimensions'] = stream_dimensions
-                    doc_id = trailers['Indirect Objects'][index][trailer]['Value']['ID']['Value'][0]['Value']
+                    self.__crypt_handler_info['doc_id'] = trailers['Indirect Objects'][index][trailer]['Value']['ID']['Value'][0]['Value']
                     self.__process_streams(x, trailers, summary)
 
 
@@ -3364,6 +3364,9 @@ class PyDF2JSON(object):
             P = struct.pack('<l', int(ret_dict[0]['Value']['P']['Value']))
             O = None
             U = None
+            OE = None
+            UE = None
+            Perms = None
             if ret_dict[0]['Value']['O']['Value Type'] == 'Hexidecimal String':
                 O = ret_dict[0]['Value']['O']['Value']
             if ret_dict[0]['Value']['O']['Value Type'] == 'Literal String':
@@ -3411,9 +3414,6 @@ class PyDF2JSON(object):
                 self.__crypt_handler_info['method'] = 'RC4'
 
             if V == 5:
-                OE = None
-                UE = None
-                Perms = None
                 if ret_dict[0]['Value']['OE']['Value Type'] == 'Hexidecimal String':
                     OE = ret_dict[0]['Value']['OE']['Value']
                 if ret_dict[0]['Value']['OE']['Value Type'] == 'Literal String':
@@ -3435,45 +3435,11 @@ class PyDF2JSON(object):
             if V >= 6:
                 self.__error_control('Exception', 'Document encrypted with an unsupported version number. Aborting analysis.', obj)
 
-            # Generate file_key based on Version/Revision
-            if V < 5:
-                # Blank password padding used by Adobe...
-                pad = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
+            self.__crypt_handler_info['O'] = O
+            self.__crypt_handler_info['P'] = P
+            self.__crypt_handler_info['U'] = U
+            self.__crypt_handler_info['OE'] = OE
+            self.__crypt_handler_info['UE'] = UE
+            self.__crypt_handler_info['Perms'] = Perms
 
-                if self.pdf_password == None:
-                    pdf_pass = pad
-                else:
-                    tmp_pass = self.pdf_password.encode('hex').upper()
-                    lex = len(tmp_pass)
-                    if lex < 64:
-                        short = 64 - lex
-                        temp_pass = tmp_pass + pad[0:short]
-                    else:
-                        temp_pass = tmp_pass[0:64]
-                    pdf_pass = temp_pass
-
-                file_key = self.crypto.gen_file_key(self.__crypt_handler_info, pdf_pass, O, P, doc_id)
-
-                # Test if file key is valid
-                u_check = self.crypto.confirm_file_key(pad, doc_id, file_key, self.__crypt_handler_info['revision'])
-                if u_check[0:16] == U[0:32].decode('hex'):
-                    self.__crypt_handler_info['file_key'] = file_key
-                else:
-                    raise Exception('Encrypted document requires a password. Aborting analysis.')
-
-            if V == 5:
-                # Blank password padding used by Adobe is NOT used for AESV3.
-                # Instead, set it to an empty string.
-                if self.pdf_password is None:
-                    pdf_pass = ''
-                else:
-                    pdf_pass = self.pdf_password
-
-                if not 'Crypto.Cipher.AES' in sys.modules:
-                    raise Exception('Missing pycrypto. pip install pycrypto')
-
-                file_key, perms = self.crypto.func_2A(pdf_pass, O.decode('hex'), U.decode('hex'),
-                             OE.decode('hex'), UE.decode('hex'), Perms.decode('hex'), P)
-                self.__crypt_handler_info['file_key'] = file_key
-                self.__crypt_handler_info['file_perms'] = perms
-        return
+            self.crypto.retreive_file_key(self.__crypt_handler_info, self.pdf_password)
