@@ -135,7 +135,7 @@ class PyDF2JSON(object):
     crypto = pdfcrypt.PDFCrypto()
 
     # password: Use this password to decrypt document.
-    pdf_password = None
+    pdf_password = ''
 
     # show_ttf: Place true type fonts streams in json output. Default is False.
     show_ttf = False
@@ -252,13 +252,29 @@ class PyDF2JSON(object):
         # Check for encryption
         # If found set global file key
         try:
-            self.get_encryption_handler(x, summary)
+            self.get_encryption_handler(x, summary, self.pdf_password)
         except Exception as e:
             raise e
 
         if self.__is_crypted:
             if not 'Crypto.Cipher.AES' in sys.modules:
                 raise Exception('Missing pycrypto. pip install pycrypto')
+            try:
+                if self.__crypt_handler_info['version'] == 5:
+                    hashcheck = self.crypto.retrievev5_hash(self.__crypt_handler_info, self.pdf_password)
+                    hash_type = self.crypto.checkv5_hash(self.__crypt_handler_info, hashcheck)
+                    if not hash_type:
+                        raise Exception('Encrypted document requires a password. Aborting analysis.')
+                    self.__crypt_handler_info['file_key'] = self.crypto.retrievev5_file_key(self.__crypt_handler_info,
+                                                                                            self.pdf_password,
+                                                                                            hash_type)
+                if self.__crypt_handler_info['version'] < 5:
+                    self.__crypt_handler_info['file_key'] = self.crypto.retrievev4_file_key(self.__crypt_handler_info,
+                                                                                          self.pdf_password)
+                    if not self.crypto.checkv4_file_key(self.__crypt_handler_info):
+                        raise Exception('Encrypted document requires a password. Aborting analysis.')
+            except Exception as e:
+                raise e
 
         # Proceed with PDF body processing
         try:
@@ -267,25 +283,16 @@ class PyDF2JSON(object):
         except Exception as e:
             raise e
 
-         # Create object map.
-        omap = {}
-        omap['IO'] = {}
-        omap['OS'] = {}
-        omap['IO Offsets'] = {}
-        omap['XRT Offsets'] = []
-        omap['XRS Offsets'] = []
-        self.__assemble_map(PDF['Body'], omap)
-
         #PDF['Body'] = self.__body_scan(x, s_offset) # Debugging...
         # The above line got all indirect objects, trailers, xref tables etc
         # and preserved the position and length of all streams.
         # Now go get the streams... :)
         try:
-            self.__process_streams(x, PDF['Body'], summary, omap)
+            self.__process_streams(x, PDF['Body'], summary)
         except Exception as e:
             raise e
 
-         # Recreate object map to account for decoded object streams.
+         # Create object map.
         omap = {}
         omap['IO'] = {}
         omap['OS'] = {}
@@ -1362,7 +1369,7 @@ class PyDF2JSON(object):
         return e
 
 
-    def __process_streams(self, x, bod, summary, omap):
+    def __process_streams(self, x, bod, summary):
         stream_displays = {
             'ttf': self.show_ttf,
             'bitmap': self.show_bitmaps,
@@ -1443,11 +1450,11 @@ class PyDF2JSON(object):
                         try:
                             if i[obj_name]['Value'].has_key('Type'):
                                 if not i[obj_name]['Value']['Type']['Value'] == 'XRef':
-                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name, omap)
+                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name)
                                 else:
-                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, 'NO_DECRYPT', omap)
+                                    cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, 'NO_DECRYPT')
                             else:
-                                cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name, omap)
+                                cur_stream = self.__filter_parse(cur_stream, cur_filter, cur_decoder, obj_name)
                         except SpecViolation as e:
                             self.__error_control(e.__repr__(), e.message, obj_name)
                         except Exception as e:
@@ -1658,7 +1665,7 @@ class PyDF2JSON(object):
         return stream_type
 
 
-    def __filter_parse(self, my_stream, filter, decodeparms, cur_obj, omap):
+    def __filter_parse(self, my_stream, filter, decodeparms, cur_obj):
         ignore_filters = {
             'DCTDecode',
             'DCT',
@@ -3161,7 +3168,7 @@ class PyDF2JSON(object):
         return file_name
 
 
-    def get_encryption_handler(self, x, summary):
+    def get_encryption_handler(self, x, summary, password):
         xref_offsets = []
         xref_tables = []
         trailers = {}
@@ -3441,5 +3448,5 @@ class PyDF2JSON(object):
             self.__crypt_handler_info['OE'] = OE
             self.__crypt_handler_info['UE'] = UE
             self.__crypt_handler_info['Perms'] = Perms
-
-            self.crypto.retreive_file_key(self.__crypt_handler_info, self.pdf_password)
+            # Blank password padding used by Adobe...
+            self.__crypt_handler_info['pad'] = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'

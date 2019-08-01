@@ -1,5 +1,6 @@
 import hashlib
 import struct
+import random
 import sys
 try:
     # noinspection PyPackageRequirements
@@ -48,55 +49,66 @@ class PDFCrypto(object):
                 new_str += tmp
         return new_str
 
-    def retreive_file_key(self, handler_info, pdf_password):
-        # Generate file_key based on Version/Revision
-        if handler_info['version'] < 5:
-            # Blank password padding used by Adobe...
-            pad = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
-
-            if pdf_password is None:
-                pdf_pass = pad
+    def escaped_string_insertion(self, x):
+        new_str = ''
+        for i in range(0, len(x), ++2):
+            tmp = x[i:i + 2]
+            if tmp == '5c' or tmp == '0d' or tmp == '0a' or \
+                    tmp == '08' or tmp == '28' or tmp == '29':
+                new_str += ('5c' + tmp)
             else:
-                tmp_pass = pdf_password.encode('hex').upper()
-                lex = len(tmp_pass)
-                if lex < 64:
-                    short = 64 - lex
-                    temp_pass = tmp_pass + pad[0:short]
-                else:
-                    temp_pass = tmp_pass[0:64]
-                pdf_pass = temp_pass
+                new_str += tmp
+        return new_str
 
-            file_key = self.gen_file_key(handler_info, pdf_pass)
+    def retrievev5_hash(self, handler_info, pdf_password):
+        hash = self.func_2A_hash(pdf_password,
+                            handler_info['O'].decode('hex'),
+                            handler_info['U'].decode('hex'),
+                            handler_info['OE'].decode('hex'),
+                            handler_info['UE'].decode('hex'),
+                            handler_info['Perms'].decode('hex'),
+                            handler_info['P'])
+        return hash
 
-            # Test if file key is valid
-            u_check = self.confirm_file_key(handler_info, pad, file_key)
-            if u_check[0:16] == handler_info['U'][0:32].decode('hex'):
-                handler_info['file_key'] = file_key
-            else:
-                raise Exception('Encrypted document requires a password. Aborting analysis.')
+    def retrievev5_file_key(self, handler, password, hash_type):
+        U = handler['U'].decode('hex')[0:48]
+        O = handler['O'].decode('hex')[0:48]
+        uk_salt = U[40:48]
+        ok_salt = O[40:48]
+        ue = handler['UE'].decode('hex')
+        oe = handler['OE'].decode('hex')
+        IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
 
-        if handler_info['version'] == 5:
-            # Blank password padding used by Adobe is NOT used for AESV3.
-            # Instead, set it to an empty string.
-            if pdf_password is None:
-                pdf_pass = ''
-            else:
-                pdf_pass = pdf_password
+        if hash_type == 'Owner':
+            key = self.func_2B(password + ok_salt + U, password, U, purpose='O_CREATE')
+            file_key = self.aes_crypt(oe, key, AES.MODE_CBC, IV, padding=False, function='decrypt')
+            return file_key
 
-            if not 'Crypto.Cipher.AES' in sys.modules:
-                raise Exception('Missing pycrypto. pip install pycrypto')
+        if hash_type == 'User':
+            key = self.func_2B(password + uk_salt, password, U, purpose='U_CREATE')
+            file_key = self.aes_crypt(ue, key, AES.MODE_CBC, IV, padding=False, function='decrypt')
+            return file_key
 
-            file_key, perms = self.func_2A(pdf_pass,
-                                                  handler_info['O'].decode('hex'),
-                                                  handler_info['U'].decode('hex'),
-                                                  handler_info['OE'].decode('hex'),
-                                                  handler_info['UE'].decode('hex'),
-                                                  handler_info['Perms'].decode('hex'),
-                                                  handler_info['P'])
-            handler_info['file_key'] = file_key
-            handler_info['file_perms'] = perms
+    def checkv4_file_key(self, handler):
+        u_check = self.confirm_file_key(handler)
+        if not u_check[0:16] == handler['U'][0:32].decode('hex'):
+            return False
+        return True
 
-    def gen_file_key(self, handler, password):
+    def checkv5_hash(self, handler, hash):
+        u_hash = handler['U'].decode('hex')
+        o_hash = handler['O'].decode('hex')
+
+        if hash == o_hash[0:32]:
+            return 'Owner'
+
+        if hash == u_hash[0:32]:
+            return 'User'
+
+        return False
+
+    # Algo 2 last part. May be redundant and can delete.
+    def genv4_file_key(self, handler, password):
         md = hashlib.md5()
         md.update(password.decode('hex'))  # Input should have been hex string
         md.update(handler['O'].decode('hex'))  # Input should have been hex string
@@ -137,25 +149,25 @@ class PDFCrypto(object):
 
         return o_key[0:f_key_size]
 
-    def confirm_file_key(self, handler, password, file_key):
+    def confirm_file_key(self, handler):
         md = hashlib.md5()
         if handler['revision'] >= 3:
-            md.update(password.decode('hex'))
+            md.update(handler['pad'].decode('hex'))
             md.update(handler['doc_id'].decode('hex'))
 
             digest = md.digest()
 
-            cipher = self.rc4_crypt(digest, file_key)
+            cipher = self.rc4_crypt(digest, handler['file_key'])
 
             for i in range(0, 19):
                 key = ''
 
-                for j in file_key:
+                for j in handler['file_key']:
                     key += (chr(ord(j) ^ (i + 1)))
 
                 cipher = self.rc4_crypt(cipher, key)
         else:
-            cipher = self.rc4_crypt(password.decode('hex'), file_key)
+            cipher = self.rc4_crypt(handler['pad'].decode('hex'), handler['file_key'])
             return cipher
 
         return cipher
@@ -278,49 +290,29 @@ class PDFCrypto(object):
         else:
             return E
 
-    def func_2A(self, password, o, u, oe, ue, Perms, P):
-        def __get_filekey(password, o, u, oe, ue, check_type):
+    def func_2A_hash(self, password, o, u, oe, ue, Perms, P):
+        def __get_hash(password, o, u, check_type):
             U = u[0:48]
-            u_hash = u[0:32]
             uv_salt = u[32:40]
-            uk_salt = u[40:48]
-            o_hash = o[0:32]
             ov_salt = o[32:40]
-            ok_salt = o[40:48]
-
-            IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-            found = False
 
             if check_type == 'owner':
-                check = self.func_2B(password + ov_salt + U, password, U, purpose='O_CHECK')
+                hash = self.func_2B(password + ov_salt + U, password, U, purpose='O_CHECK')
             if check_type == 'user':
-                check = self.func_2B(password + uv_salt, password, U, purpose='U_CHECK')
+                hash = self.func_2B(password + uv_salt, password, U, purpose='U_CHECK')
 
-            if check == o_hash:
-                # Owners password was used
-                key = self.func_2B(password + ok_salt + U, password, U, purpose='O_CREATE')
-                file_key = self.aes_crypt(oe, key, AES.MODE_CBC, IV, padding=False, function='decrypt')
-                found = True
-
-            if check == u_hash:
-                # Users password was used
-                key = self.func_2B(password + uk_salt, password, U, purpose='U_CREATE')
-                file_key = self.aes_crypt(ue, key, AES.MODE_CBC, IV, padding=False, function='decrypt')
-                found = True
-
-            if found:
-                return file_key
-            else:
-                return
-
+            return hash
+        '''
         # Check if this is the owners pass or users pass:
-        file_key =__get_filekey(password, o, u, oe, ue, check_type='owner')
-        if file_key == None:
-            file_key =__get_filekey(password, o, u, oe, ue, check_type='user')
-            if file_key == None:
-                raise Exception('Unable to decrypt document. Bad password?')
+        pass_hash =__get_hash(password, o, u, check_type='owner')
+        if pass_hash == o[0:32]: # it's the owner password.
+            return pass_hash
+        pass_hash =__get_hash(password, o, u, check_type='user')
+        if pass_hash == u[0:32]:
+            return pass_hash
+        raise Exception('Unable to decrypt document. Bad password?')
 
-
+        # Looks like all this below here is for checking perms validity before sending back decryption key
         IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
         perms = self.aes_crypt(Perms, file_key, AES.MODE_ECB, IV, padding=False, function='decrypt')
 
@@ -328,7 +320,7 @@ class PDFCrypto(object):
             return file_key, perms
         else:
             raise Exception('SpecViolation: Perms string is non compliant.')
-
+        '''
     def func_2B(self, input, password, h_salts, purpose):
         md = hashlib.sha256()
         md.update(input)
@@ -364,4 +356,187 @@ class PDFCrypto(object):
                 break
 
         return K[0:32]
+
+    # Algo 2. Gen file key for version <= 4
+    def retrievev4_file_key(self, handler, pdf_password):
+        pdf_pass = (pdf_password + handler['pad'].decode('hex'))[0:32]
+
+        #f_key = self.genv4_file_key(handler_info, pdf_pass)
+
+        md = hashlib.md5()
+        md.update(pdf_pass)  # Input should have been hex string
+        md.update(handler['O'].decode('hex'))  # Input should have been hex string
+        md.update(handler['P'])                # Input should have already been decoded into hex value
+        md.update(handler['doc_id'].decode('hex')) # Input should have been hex string
+        key_size = handler['key_length'] / 8
+        if handler['version'] == 4:
+            if not handler['encrypt_metadata']:
+                md.update('\xff\xff\xff\xff')
+        f_key = md.digest()
+
+        if handler['revision'] >= 3:
+            for i in range(0, 50):
+                md = hashlib.md5()
+                md.update(f_key[0:key_size])
+                f_key = md.digest()
+
+        f_key = f_key[0:key_size]
+
+        return f_key
+
+    # Algo 3. <= V4. Calculate O entry.
+    def genv4_O_entry(self, handler, o_password, u_password, caller=None):
+        # step a
+        if o_password == '':
+            hash_pass = (u_password + handler['pad'].decode('hex'))[0:32]
+        else:
+            hash_pass = (o_password + handler['pad'].decode('hex'))[0:32]
+
+        # step b
+        md = hashlib.md5()
+        md.update(hash_pass)
+        K = md.digest()
+        key_size = 5
+
+        if handler['revision'] >= 3:
+            key_size = handler['key_length'] / 8 # key_size different for revision > 2
+            # step c
+            for i in range(0, 50):
+                md = hashlib.md5()
+                md.update(K)
+                K = md.digest()
+
+        # Step d
+        f_key = K[0:key_size]
+        if caller == 'A7': # Was this function called by algorithm 7?
+            return f_key
+
+        # step e
+        hash_pass = (u_password + handler['pad'].decode('hex'))[0:32]
+
+        # Step f
+        cipher = self.rc4_crypt(hash_pass, f_key)
+
+        # step g
+        if handler['revision'] >= 3:
+            for i in range(0, 19):
+                key = ''
+                for j in f_key:
+                    key += (chr(ord(j) ^ (i + 1)))
+                cipher = self.rc4_crypt(cipher, key)
+
+        return cipher
+
+    # Algo 4. Revision 2. Calculate U entry.
+    def genv4r2_U_entry(self, handler, u_password):
+        # step a
+        file_key = self.retrievev4_file_key(handler, u_password)
+
+        # step b
+        u_entry = self.rc4_crypt(handler['pad'].decode('hex'), file_key)
+
+        # step c. Store value as U entry. I am simply returning the value for now.
+        # Because I am only returning the value, this function doubles as Algo 6.
+        return u_entry
+
+    # Algo 5. Revision 3 & 4. Calculate U entry.
+    def genv4r34_U_entry(self, handler, u_password):
+        # step a
+        file_key = self.retrievev4_file_key(handler, u_password)
+
+        # step b
+        md = hashlib.md5()
+        md.update(handler['pad'].decode('hex'))
+
+        # step c
+        md.update(handler['doc_id'].decode('hex'))
+        md5 = md.digest()
+
+        # step d
+        cipher = self.rc4_crypt(md5, file_key)
+
+        # step e
+        for i in range(0, 19):
+            key = ''
+            for j in file_key:
+                key += (chr(ord(j) ^ (i + 1)))
+            cipher = self.rc4_crypt(cipher, key)
+
+        # step f.
+        cipher += '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+
+        # Store value as U entry. I am simply returning the value for now.
+        # Because I am only returning the value, this function doubles as Algo 6.
+        return cipher
+
+    # Algo 6. See the tail ends of algo 4 and 5 :)
+
+    # Algo 7. Revision <= 4. Auth owner password.
+    def authv4_O(self, handler, o_password):
+        # step a
+        u_password = ''
+        f_key = self.genv4_O_entry(handler, o_password, u_password, 'A7')
+
+        # step b
+        if handler['revision'] < 3:
+            u_password = self.rc4_crypt(handler['O'].decode('hex'), f_key)
+
+        if handler['revision'] >= 3:
+            plaintext = handler['O'].decode('hex')
+            for i in range(20, 0, -1):
+                key = ''
+                for j in f_key:
+                    key += (chr(ord(j) ^ (i - 1)))
+                plaintext = self.rc4_crypt(plaintext, key)
+
+            u_password = self.genv4r34_U_entry(handler, plaintext)
+
+        # step c
+        if u_password[0:16] == handler['U'].decode('hex')[0:16]:
+            return True
+        return False
+
+    # Algo 8. Revision 6. Calc U and UE
+    def genv6_U_UE(self, u_password, file_key):
+        # initialize needful things
+        chars = ''
+        IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+
+        for i in range(0,256):
+            chars += chr(i)
+
+        # step a
+        tmp = "".join(random.sample(chars, 16))
+        U = self.func_2B(u_password + tmp[0:8], u_password, None, 'U_CREATE')
+        U += tmp
+
+        # step b
+        key = self.func_2B(u_password + tmp[8:16], u_password, None, 'U_CREATE')
+        UE = self.aes_crypt(file_key, key, AES.MODE_CBC, IV, padding=False, function='encrypt')
+
+        return U, UE
+
+    # Algo 9. Revision 6. Calc O and OE
+    def genv6_O_OE(self, o_password, file_key, U):
+        # initialize needful things
+        chars = ''
+        IV = '\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+
+        for i in range(0,256):
+            chars += chr(i)
+
+        # step a
+        tmp = "".join(random.sample(chars, 16))
+        O = self.func_2B(o_password + tmp[0:8] + U, o_password, U, 'O_CREATE')
+        O += tmp
+
+        # step b
+        key = self.func_2B(o_password + tmp[8:16] + U, o_password, U, 'O_CREATE')
+        OE = self.aes_crypt(file_key, key, AES.MODE_CBC, IV, padding=False, function='encrypt')
+
+        return O, OE
+
+    # Algo 10. Revision 6. Calc Perms
+    def genv6_Perms(self, o_password, file_key, U):
+        return
 
