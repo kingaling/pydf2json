@@ -261,17 +261,34 @@ class PyDF2JSON(object):
                 raise Exception('Missing pycrypto. pip install pycrypto')
             try:
                 if self.__crypt_handler_info['version'] == 5:
-                    hashcheck = self.crypto.retrievev5_hash(self.__crypt_handler_info, self.pdf_password)
-                    hash_type = self.crypto.checkv5_hash(self.__crypt_handler_info, hashcheck)
-                    if not hash_type:
+                    # Check v5 password
+                    if self.crypto.authv6_U(self.pdf_password, self.__crypt_handler_info['U']):
+                        self.__crypt_handler_info['file_key'] = self.crypto.retrv5_fkey(self.__crypt_handler_info,
+                                                                                        self.pdf_password, 'User')
+                    elif self.crypto.authv6_O(self.pdf_password, self.__crypt_handler_info['O'],
+                                              self.__crypt_handler_info['U']):
+                        self.__crypt_handler_info['file_key'] = self.crypto.retrv5_fkey(self.__crypt_handler_info,
+                                                                                        self.pdf_password, 'Owner')
+                    else:
                         raise Exception('Encrypted document requires a password. Aborting analysis.')
-                    self.__crypt_handler_info['file_key'] = self.crypto.retrievev5_file_key(self.__crypt_handler_info,
-                                                                                            self.pdf_password,
-                                                                                            hash_type)
+                    if not self.crypto.authv6_Perms(self.__crypt_handler_info['P'], self.__crypt_handler_info['Perms'],
+                                                self.__crypt_handler_info['file_key']):
+                        raise Exception('Encrypted document Perms entry is malformed. Tampering?')
                 if self.__crypt_handler_info['version'] < 5:
-                    self.__crypt_handler_info['file_key'] = self.crypto.retrievev4_file_key(self.__crypt_handler_info,
-                                                                                          self.pdf_password)
-                    if not self.crypto.checkv4_file_key(self.__crypt_handler_info):
+                    if self.__crypt_handler_info['revision'] < 3:
+                        tmpU_key = self.crypto.genv4r2_U_entry(self.__crypt_handler_info, self.pdf_password)
+                    else:
+                        tmpU_key = self.crypto.genv4r34_U_entry(self.__crypt_handler_info, self.pdf_password)
+                    tmpu_password = self.crypto.authv4_O(self.__crypt_handler_info, self.pdf_password)
+                    if self.__crypt_handler_info['revision'] < 3:
+                        tmpO_key = self.crypto.genv4r2_U_entry(self.__crypt_handler_info, tmpu_password)
+                    else:
+                        tmpO_key = self.crypto.genv4r34_U_entry(self.__crypt_handler_info, tmpu_password)
+                    if tmpU_key == self.__crypt_handler_info['U']:
+                        self.__crypt_handler_info['file_key'] = self.crypto.retrv4_fkey(self.__crypt_handler_info, self.pdf_password)
+                    elif tmpO_key == self.__crypt_handler_info['U']:
+                        self.__crypt_handler_info['file_key'] = self.crypto.retrv4_fkey(self.__crypt_handler_info, tmpu_password)
+                    else:
                         raise Exception('Encrypted document requires a password. Aborting analysis.')
             except Exception as e:
                 raise e
@@ -3245,7 +3262,7 @@ class PyDF2JSON(object):
                                 trailers['XRef Tables'] = []
                             deob_ret['Offset'] = trailer_offset
                             trailers['Trailers'].append(deob_ret)
-                            self.__crypt_handler_info['doc_id'] = trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value']
+                            self.__crypt_handler_info['doc_id'] = trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value'].decode('hex')
                             trailers['XRef Tables'].append(xref_tables)
                             break
                 if o_type == 'obj':
@@ -3275,7 +3292,7 @@ class PyDF2JSON(object):
                         self.__error_control('SpecViolation', 'trailer XRef stream is missing \'Length\' value', trailer)
                     stream_dimensions['Start'] = ret_stream[1]
                     trailers['Indirect Objects'][index][trailer]['Stream Dimensions'] = stream_dimensions
-                    self.__crypt_handler_info['doc_id'] = trailers['Indirect Objects'][index][trailer]['Value']['ID']['Value'][0]['Value']
+                    self.__crypt_handler_info['doc_id'] = trailers['Indirect Objects'][index][trailer]['Value']['ID']['Value'][0]['Value'].decode('hex')
                     self.__process_streams(x, trailers, summary)
 
 
@@ -3368,7 +3385,7 @@ class PyDF2JSON(object):
 
             self.__crypt_handler_info['version'] = V
 
-            P = struct.pack('<l', int(ret_dict[0]['Value']['P']['Value']))
+            P = ret_dict[0]['Value']['P']['Value']
             O = None
             U = None
             OE = None
@@ -3442,11 +3459,12 @@ class PyDF2JSON(object):
             if V >= 6:
                 self.__error_control('Exception', 'Document encrypted with an unsupported version number. Aborting analysis.', obj)
 
-            self.__crypt_handler_info['O'] = O
+            self.__crypt_handler_info['O'] = O.decode('hex')
             self.__crypt_handler_info['P'] = P
-            self.__crypt_handler_info['U'] = U
-            self.__crypt_handler_info['OE'] = OE
-            self.__crypt_handler_info['UE'] = UE
-            self.__crypt_handler_info['Perms'] = Perms
-            # Blank password padding used by Adobe...
-            self.__crypt_handler_info['pad'] = '28BF4E5E4E758A4164004E56FFFA01082E2E00B6D0683E802F0CA9FE6453697A'
+            self.__crypt_handler_info['U'] = U.decode('hex')
+            if OE:
+                self.__crypt_handler_info['OE'] = OE.decode('hex')
+            if UE:
+                self.__crypt_handler_info['UE'] = UE.decode('hex')
+            if Perms:
+                self.__crypt_handler_info['Perms'] = Perms.decode('hex')
