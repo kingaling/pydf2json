@@ -225,7 +225,7 @@ class PDFCrypto(object):
         md = hashlib.md5()
         md.update(pdf_pass)
         md.update(handler['O'])
-        md.update(struct.pack('<l', int(handler['P']))) # struct.pack('<l', int(P))
+        md.update(struct.pack('<l', int(handler['P'])))
         md.update(handler['doc_id'])
         key_size = handler['key_length'] / 8
         if handler['version'] == 4:

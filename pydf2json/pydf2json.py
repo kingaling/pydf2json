@@ -252,7 +252,7 @@ class PyDF2JSON(object):
         # Check for encryption
         # If found set global file key
         try:
-            self.get_encryption_handler(x, summary, self.pdf_password)
+            self.get_encryption_handler(x, summary)
         except Exception as e:
             raise e
 
@@ -3185,7 +3185,7 @@ class PyDF2JSON(object):
         return file_name
 
 
-    def get_encryption_handler(self, x, summary, password):
+    def get_encryption_handler(self, x, summary):
         xref_offsets = []
         xref_tables = []
         trailers = {}
@@ -3468,3 +3468,5 @@ class PyDF2JSON(object):
                 self.__crypt_handler_info['UE'] = UE.decode('hex')
             if Perms:
                 self.__crypt_handler_info['Perms'] = Perms.decode('hex')
+        # returning the encryption handler data in case other apps are calling this function :)
+        return self.__crypt_handler_info
