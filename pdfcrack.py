@@ -20,7 +20,7 @@ import argparse
 import os
 
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 __author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
@@ -148,13 +148,13 @@ def main():
     charset = gen_charset(args.charset)
     res = crack(handler, target_type, args.min, args.max, charset)
 
+    if res:
+        print 'Password: %s' % res
+    else:
+        print 'Password not found.'
+
     return res
 
 
 if __name__ == '__main__':
     res = main()
-    if res:
-        print 'Jimmy cracked corn: %s' % res
-    else:
-        print 'Password not found.'
-    exit()
