@@ -21,7 +21,7 @@ import argparse
 import re
 
 
-__version__ = '2.2.3'
+__version__ = '2.3.0'
 __author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
@@ -33,14 +33,7 @@ def argbuilder():
     parser.add_argument("-p", help="Specify PDF password", dest="password", metavar="PASSWORD")
     parser.add_argument("--no_summary",help="Showing the summary is the default. This disables it.", action="store_true")
     parser.add_argument("--show_json",help="Outputs pdf in json to the screen. Disabled by default.", action="store_true")
-    jsongrp = parser.add_argument_group("json options")
-    jsongrp.add_argument("--show_text", help="* Include page text in json output", action="store_true")
-    jsongrp.add_argument("--show_ttf", help="* Include true type fonts in json output", action="store_true")
-    jsongrp.add_argument("--show_bitmap", help="* Include bitmaps in json output", action="store_true")
-    jsongrp.add_argument("--show_pics", help="* Include pictures in json output", action="store_true")
-    jsongrp.add_argument("--show_embedded_files", help="* Include embedded files in json output", action="store_true")
-    jsongrp.add_argument("--show_arbitrary", help="* Include arbitrary data in json output", action="store_true")
-    jsongrp.add_argument("--show_all", help="* Include all streams including arbitrary data in json", action="store_true")
+
     args = parser.parse_args()
     return args
 
@@ -66,20 +59,6 @@ def main():
         else:
             print '%s is not a valid dump directory location.' % args.Location
             exit()
-
-    # Check starred options:
-    if args.show_bitmap or args.show_all:
-        pdf_object.show_bitmaps = True
-    if args.show_embedded_files or args.show_all:
-        pdf_object.show_embedded_files = True
-    if args.show_pics or args.show_all:
-        pdf_object.show_pics = True
-    if args.show_arbitrary or args.show_all:
-        pdf_object.show_arbitrary = True
-    if args.show_ttf or args.show_all:
-        pdf_object.show_ttf = True
-    if args.show_text or args.show_all:
-        pdf_object.show_text = True
 
     # Check if a password was passed:
     if not args.password is None:
@@ -116,8 +95,9 @@ def main():
         print '--------------------------\n'
         if summary['Encryption']['enabled']:
             print '{:<29} {:<32}'.format('Encrypted:', 'True')
-            print '{:<29} {:<32}'.format('Key:', summary['Encryption']['file_key'])
-            print '{:<29} {:<32}'.format('Key Length:', summary['Encryption']['key_length'])
+            print '{:<29} {:<32}'.format('User Pass:', args.password)
+            print '{:<29} {:<32}'.format('File Key:', summary['Encryption']['file_key'])
+            print '{:<29} {:<32}'.format('Key Length:', str(summary['Encryption']['key_length']) + ' bits')
             print '{:<29} {:<32}\n'.format('Algo:', summary['Encryption']['algorithm'])
         else:
             print '{:<20} {:>10}'.format('Encrypted:', 'False')

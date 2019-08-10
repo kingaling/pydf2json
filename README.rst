@@ -15,9 +15,7 @@ Usage
 
    > pydf.py
      usage: pydf.py [-h] [-d LOCATION] [-s MAX_SIZE] [-p PASSWORD] [--no_summary]
-                    [--show_json] [--show_text] [--show_ttf] [--show_bitmap]
-                    [--show_pics] [--show_embedded_files] [--show_arbitrary]
-                    [--show_all]
+                    [--show_json]
                     pdf
   
    > pydf.py secure_dropbox.pdf -p 29576AE2
@@ -25,8 +23,9 @@ Usage
      --------------------------
 
      Encrypted:                    True
+     User Pass:                    None
      Key:                          030359FF89FC8A8EB764E97AD2ED7091
-     Key Length:                   128
+     Key Length:                   128 bits
      Algo:                         RC4
 
      Additional Actions:           0

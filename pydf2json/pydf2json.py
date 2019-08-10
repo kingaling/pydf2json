@@ -32,7 +32,7 @@ except Exception as e:
     pass
 
 
-__version__ = '2.2.3'
+__version__ = '2.3.0'
 __author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
@@ -136,24 +136,6 @@ class PyDF2JSON(object):
 
     # password: Use this password to decrypt document.
     pdf_password = ''
-
-    # show_ttf: Place true type fonts streams in json output. Default is False.
-    show_ttf = False
-
-    # show_bitmaps: Place bitmap streams in json output. Default is False.
-    show_bitmaps = False
-
-    # show_pics: Place picture streams in json output. Default is False.
-    show_pics = False
-
-    # show_embedded_files: Pretty much all other types of files. Default is False.
-    show_embedded_files = False
-
-    # show_arbitrary: Arbitrary data found outside of any object. Default is False.
-    show_arbitrary = False
-
-    # show_text: Show any decoded text streams. Default is false.
-    show_text = False
 
     # dump_streams: Dump streams to a temp location. Using this for LaikaBOSS objects.
     dump_streams = False
@@ -1387,23 +1369,6 @@ class PyDF2JSON(object):
 
 
     def __process_streams(self, x, bod, summary):
-        stream_displays = {
-            'ttf': self.show_ttf,
-            'bitmap': self.show_bitmaps,
-            'graphic': self.show_pics,
-            'olecf': self.show_embedded_files,
-            'docx': self.show_embedded_files,
-            'xlsx': self.show_embedded_files,
-            'zip': self.show_embedded_files,
-            'arbitrary': self.show_arbitrary,
-            'pdf_mcid': self.show_text,
-            'pefile': False,
-            'Unknown': True
-        }
-        decoded_streams = [
-            'XRef',
-            'ObjStm'
-        ]
         cur_stream = ''
         i_object_index = 0
         for i in bod['Indirect Objects']:
@@ -1537,9 +1502,6 @@ class PyDF2JSON(object):
                     open(self.dump_loc + dump_file, 'wb').write(cur_stream)
                     bod['Indirect Objects'][i_object_index][obj_name]['Stream Dump Location'] = self.dump_loc + dump_file
                     summary['Dumped Files'].append(self.dump_loc + dump_file)
-                if not stream_type in decoded_streams:
-                    if stream_displays[stream_type]:
-                        bod['Indirect Objects'][i_object_index][obj_name]['Stream Data'] = cur_stream
 
                 if i[obj_name]['Value'].has_key('Type') and stream_type == 'Unknown':
                     stream_type = bod['Indirect Objects'][i_object_index][obj_name]['Value']['Type']['Value']

@@ -1,5 +1,16 @@
 Recent Activity
 ---------------
+20190810 - Created pdfcrack.py
+    -  Even though the capability exists to attack large keyspace, I don't recommend that with this tool.
+        -  This is after all, only a python script. :)
+    -  Without commandline switches, script will default to a maximum password of 4 digits. This is the recommended attack for inline analysis.
+        - You don't want mail delivery waiting on this to finish cracking huge keyspace for every PDF it sees.
+
+History
+-------
+20190723 - Moved crypto functions into their own class
+    - I wanted the crypto functions separated because I have plans to use the library for my own pdf cracker. :)
+
 20180801 - A couple things:
     - Added support for LZWDecode filter
         - Borrowed code from pdfminer.
@@ -7,11 +18,6 @@ Recent Activity
     - Started implemeting the malware index checks.
         - Checking for unecessary whitespace within object definitions
         - Checking for unecessary encoding of chars in obect definitions
-
-History
--------
-20190723 - Moved crypto functions into their own class
-    - I wanted the crypto functions separated because I have plans to use the library for my own pdf cracker. :)
 
 20180722 - Fixed Crypt filter logic
     - Discovered that the encryption key is calculated differently when a Crypt filter is used.
