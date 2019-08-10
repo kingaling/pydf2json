@@ -146,15 +146,11 @@ def main():
         target_type = 3
 
     charset = gen_charset(args.charset)
+    print 'Attempting to crack...'
     res = crack(handler, target_type, args.min, args.max, charset)
-
-    if res:
-        print 'Password: %s' % res
-    else:
-        print 'Password not found.'
 
     return res
 
-
 if __name__ == '__main__':
     res = main()
+    print res
