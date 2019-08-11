@@ -30,7 +30,7 @@ def argbuilder():
     parser.add_argument("pdf", help="Source PDF")
     parser.add_argument("-d", help="Dump all stream objects to a specified location", dest="location", metavar="LOCATION")
     parser.add_argument("-s", help="Set maximum size of file in megabytes. Default is 2.", dest="max_size", default = 2)
-    parser.add_argument("-p", help="Specify PDF password", dest="password", metavar="PASSWORD")
+    parser.add_argument("-p", help="Specify PDF user/open password (owner passwords are ignored)", dest="password", metavar="PASSWORD")
     parser.add_argument("--no_summary",help="Showing the summary is the default. This disables it.", action="store_true")
     parser.add_argument("--show_json",help="Outputs pdf in json to the screen. Disabled by default.", action="store_true")
 

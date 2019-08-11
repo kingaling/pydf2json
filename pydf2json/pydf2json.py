@@ -242,36 +242,28 @@ class PyDF2JSON(object):
             if not 'Crypto.Cipher.AES' in sys.modules:
                 raise Exception('Missing pycrypto. pip install pycrypto')
             try:
+                if self.pdf_password == '\'\'':
+                    self.pdf_password = ''
                 if self.__crypt_handler_info['version'] == 5:
                     # Check v5 password
                     if self.crypto.authv6_U(self.pdf_password, self.__crypt_handler_info['U']):
                         self.__crypt_handler_info['file_key'] = self.crypto.retrv5_fkey(self.__crypt_handler_info,
                                                                                         self.pdf_password, 'User')
-                    elif self.crypto.authv6_O(self.pdf_password, self.__crypt_handler_info['O'],
-                                              self.__crypt_handler_info['U']):
-                        self.__crypt_handler_info['file_key'] = self.crypto.retrv5_fkey(self.__crypt_handler_info,
-                                                                                        self.pdf_password, 'Owner')
                     else:
-                        raise Exception('Encrypted document requires a password. Aborting analysis.')
+                        raise Exception('Document password incorrect. Aborting analysis.')
                     if not self.crypto.authv6_Perms(self.__crypt_handler_info['P'], self.__crypt_handler_info['Perms'],
-                                                self.__crypt_handler_info['file_key']):
+                                                    self.__crypt_handler_info['file_key']):
                         raise Exception('Encrypted document Perms entry is malformed. Tampering?')
                 if self.__crypt_handler_info['version'] < 5:
                     if self.__crypt_handler_info['revision'] < 3:
                         tmpU_key = self.crypto.genv4r2_U_entry(self.__crypt_handler_info, self.pdf_password)
                     else:
                         tmpU_key = self.crypto.genv4r34_U_entry(self.__crypt_handler_info, self.pdf_password)
-                    tmpu_password = self.crypto.authv4_O(self.__crypt_handler_info, self.pdf_password)
-                    if self.__crypt_handler_info['revision'] < 3:
-                        tmpO_key = self.crypto.genv4r2_U_entry(self.__crypt_handler_info, tmpu_password)
-                    else:
-                        tmpO_key = self.crypto.genv4r34_U_entry(self.__crypt_handler_info, tmpu_password)
                     if tmpU_key == self.__crypt_handler_info['U']:
-                        self.__crypt_handler_info['file_key'] = self.crypto.retrv4_fkey(self.__crypt_handler_info, self.pdf_password)
-                    elif tmpO_key == self.__crypt_handler_info['U']:
-                        self.__crypt_handler_info['file_key'] = self.crypto.retrv4_fkey(self.__crypt_handler_info, tmpu_password)
+                        self.__crypt_handler_info['file_key'] = self.crypto.retrv4_fkey(self.__crypt_handler_info,
+                                                                                        self.pdf_password)
                     else:
-                        raise Exception('Encrypted document requires a password. Aborting analysis.')
+                        raise Exception('Document password incorrect. Aborting analysis.')
             except Exception as e:
                 raise e
 
