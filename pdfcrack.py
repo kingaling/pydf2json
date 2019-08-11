@@ -20,7 +20,7 @@ import argparse
 import os
 
 
-__version__ = '1.0.1'
+__version__ = '1.0.2'
 __author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
@@ -146,11 +146,20 @@ def main():
         target_type = 3
 
     charset = gen_charset(args.charset)
-    print 'Attempting to crack...'
-    res = crack(handler, target_type, args.min, args.max, charset)
+    crackres = crack(handler, target_type, args.min, args.max, charset)
 
-    return res
+    return crackres
+
+
+def cl():
+    # Called if executed from command line.
+    # Also serves as command line execution when being called from an exe if you
+    # installed this as a package with pip.
+    print 'Attempting crack...'
+    result = main()
+    if result: print 'Password: ' + result
+    else: print 'Failed'
+
 
 if __name__ == '__main__':
-    res = main()
-    print res
+    cl()

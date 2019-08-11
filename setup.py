@@ -12,7 +12,7 @@ long_description = open(os.path.join(here, 'README.rst'), 'rt').read()
 
 setup(
     name = 'pydf2json',
-    version = '2.3.4',
+    version = '2.3.4.post1',
     packages=['pydf2json', 'pydf2json.scripts'],
     url = 'https://github.com/xamiel/pydf2json',
     license = 'GPL-3.0',
@@ -23,7 +23,7 @@ setup(
     entry_points = {
         'console_scripts': [
             'pydf.py = pydf2json.scripts.pydf:main',
-            'pdfcrack.py = pydf2json.scripts.pdfcrack:main'
+            'pdfcrack.py = pydf2json.scripts.pdfcrack:cl'
         ]
     },
     python_requires = '>=2.6, <3',
