@@ -2061,15 +2061,8 @@ class PyDF2JSON(object):
                     c += end_arb
                     arb_type, arb_data = self.__process_arbitrary_data(arb_data)
                     len_arb = len(arb_data)
-                    if self.show_arbitrary:
-                        body['Arbitrary Data'].append({'Value Type': arb_type,
-                                                       'Offset': current_position,
-                                                       'Length': len_arb,
-                                                       'Value': arb_data})
-                    else:
-                        body['Arbitrary Data'].append({'Value Type': arb_type,
-                                                       'Length': len_arb,
-                                                       'Offset': current_position,})
+                    body['Arbitrary Data'].append({'Value Type': arb_type, 'Length': len_arb,
+                                                    'Offset': current_position,})
                     if self.dump_streams:
                         dump_file = self.__gen_random_file()
                         open(self.dump_loc + dump_file, 'wb').write(arb_data)
