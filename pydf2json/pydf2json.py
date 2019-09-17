@@ -2162,6 +2162,7 @@ class PyDF2JSON(object):
                 xref_offset = char_loc
                 xrf_tbl.append({'Offset': xref_offset})
                 c += 4
+                c = self.__line_scan(x, c)[1]
                 current_position = c
                 while True:
                     char_loc = self.__eol_scan(x, c)
@@ -2533,6 +2534,8 @@ class PyDF2JSON(object):
                             dict_points.append(p_check[1])
                         if char == '>>' and re.search('\\\\<', datas[p_check[1] - 1:p_check[1] + 3]) == None:
                             l_array_point = len(dict_points)
+                            if l_array_point == 0:
+                                self.__error_control('SpecViolation', 'Unbalanced dictionary definition')
                             offset = dict_points[l_array_point - 1]
                             length = (p_check[1] + 2) - offset
                             end = offset + (length - 1)
@@ -2542,6 +2545,8 @@ class PyDF2JSON(object):
                     else:
                         pos += p_check[1]
                 else:
+                    if len(dict_points) > 0:
+                        self.__error_control('SpecViolation', 'Unbalanced dictionary definition')
                     break
             if len(initial_dicts) > 0:
                 new_dict = sorted(initial_dicts, key=lambda k: k['Offset'])
@@ -3170,6 +3175,7 @@ class PyDF2JSON(object):
                     self.__error_control('SpecViolation', 'startxref offset is misaligned.')
                 if o_type == 'xref':
                     pos = i + 4
+                    pos = self.__line_scan(x, pos)[1]
                     while True:
                         char_loc = self.__eol_scan(x, pos)
                         xref_entries = self.__line_scan(x, char_loc)
