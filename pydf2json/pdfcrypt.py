@@ -120,20 +120,22 @@ class PDFCrypto(object):
 
         return ''.join(out)
 
-    def decrypt(self, handler, x, data_type, cur_obj, hndlr = None):
+    def decrypt(self, handler, x, data_type, cur_obj, escape=True, hndlr = None):
         data_is_crypted = False # May seem redundant but it's not. Global encryption may be in effcet but this piece of data may not be encrypted.
 
         if data_type == 'Literal String':
             if handler['version'] == 4 or handler['version'] == 5:
                 if handler['StrF'] == 'StdCF': # Assume string is encrypted with standard handler
                     data_is_crypted = True
-                    new_str = self.escaped_string_replacement(x)
+                    if escape: new_str = self.escaped_string_replacement(x)
+                    else: new_str = x
                 else:
                     # Assume string is not encrypted and return decoded hex value
                     return x.decode('hex')
             if handler['version'] <= 3:
                 data_is_crypted = True
-                new_str = self.escaped_string_replacement(x)
+                if escape: new_str = self.escaped_string_replacement(x)
+                else: new_str = x
         else:
             new_str = x
 

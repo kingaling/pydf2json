@@ -2831,6 +2831,14 @@ class PyDF2JSON(object):
                     if p_type[0] == 'Hex':
                         v_type = 'Hexidecimal String'
                         v_val = datas[pos + 1:p_type[1]]
+                        if k_val == 'URI':
+                            if self.__is_crypted:
+                                if not cur_obj in self.__crypt_handler_info['o_ignore']:
+                                    v_val = self.crypto.decrypt(self.__crypt_handler_info, v_val,
+                                                                'Literal String', cur_obj, escape=False)
+                            else:
+                                v_val = v_val.decode('hex')
+                            v_type = 'Literal String'
                         pos = p_type[1] + 1
                         key = True
 
