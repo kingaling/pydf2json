@@ -3209,7 +3209,7 @@ class PyDF2JSON(object):
                             c = tmp_char_loc + 7
                             char_loc = self.__eol_scan(x, c)
 
-                            ret = self.__i_object_def_parse(x, c, 'trailer', 'trailer')
+                            ret = self.__i_object_def_parse(x, c, 'trailer', 'NO_DECRYPT')
                             c = ret[1]
                             current_position = c
 
