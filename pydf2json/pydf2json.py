@@ -2198,7 +2198,7 @@ class PyDF2JSON(object):
                 c += 7
                 char_loc = self.__eol_scan(x, c)
                 # A trailer keyword is follwed by a dictionary. Process the dict just like an indirect object dict.
-                ret = self.__i_object_def_parse(x, c, 'trailer', 'trailer')
+                ret = self.__i_object_def_parse(x, c, 'trailer', 'NO_DECRYPT')
                 c = ret[1]
                 current_position = c
                 # Check for obfuscation in named objects!
@@ -3223,7 +3223,10 @@ class PyDF2JSON(object):
                                 trailers['XRef Tables'] = []
                             deob_ret['Offset'] = trailer_offset
                             trailers['Trailers'].append(deob_ret)
-                            self.__crypt_handler_info['doc_id'] = trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value'].decode('hex')
+                            if trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value Type'] == 'Literal String':
+                                self.__crypt_handler_info['doc_id'] = trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value']
+                            if trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value Type'] == 'Hexidecimal String':
+                                self.__crypt_handler_info['doc_id'] = trailers['Trailers'][0]['Value']['ID']['Value'][0]['Value'].decode('hex')
                             trailers['XRef Tables'].append(xref_tables)
                             break
                 if o_type == 'obj':
@@ -3347,6 +3350,8 @@ class PyDF2JSON(object):
             self.__crypt_handler_info['version'] = V
 
             P = ret_dict[0]['Value']['P']['Value']
+            if int(P) > 0: # P should be a negative number. Decryption will not work without correcting
+                P = str(-((int(P) ^ 0xFFFFFFFF) + 1))
             O = None
             U = None
             OE = None
