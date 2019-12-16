@@ -3350,7 +3350,7 @@ class PyDF2JSON(object):
             self.__crypt_handler_info['version'] = V
 
             P = ret_dict[0]['Value']['P']['Value']
-            if int(P) > 65535: # P "should" be a negative number. Decryption will not work without correcting
+            if int(P) > 2147483647: # P "should" be a negative number. Decryption will not work without correcting
                 P = str(-((int(P) ^ 0xFFFFFFFF) + 1))
             O = None
             U = None
