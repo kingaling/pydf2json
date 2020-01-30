@@ -2166,13 +2166,14 @@ class PyDF2JSON(object):
                 current_position = c
                 while True:
                     char_loc = self.__eol_scan(x, c)
-                    # This next line should be 2 digits.
-                    # Read it so we know how to parse the xref table.
                     xref_entries = self.__line_scan(x, char_loc)
                     c = xref_entries[1]
-                    xref_entries = xref_entries[0].split(' ')
-                    # index 0 = The first defined object
-                    # index 1 = The number of objects in the table.
+                    if re.search('\d', xref_entries[0]):
+                        subsection_pos = re.search('\d', xref_entries[0]).start()
+                        xref_entries = xref_entries[0][subsection_pos:].split(' ')
+                    else:
+                        raise SpecViolation('Invalid XRef table')
+
                     try:
                         tmp_xrf_tbl = self.__xref_parse(x, xref_entries, c)
                     except SpecViolation as e:
@@ -2186,7 +2187,6 @@ class PyDF2JSON(object):
                     tmp_char_loc = self.__eol_scan(x, c)
                     tmp_perm_str = self.__line_scan(x, tmp_char_loc)
                     if re.match('trailer', tmp_perm_str[0]): # xref table is complete
-                        x_data = {}
                         if not body.has_key('XRef Tables'):
                             body['XRef Tables'] = []
                         body['XRef Tables'].append(xrf_tbl)
@@ -3188,7 +3188,11 @@ class PyDF2JSON(object):
                         char_loc = self.__eol_scan(x, pos)
                         xref_entries = self.__line_scan(x, char_loc)
                         c = xref_entries[1]
-                        xref_entries = xref_entries[0].split(' ')
+                        if re.search('\d', xref_entries[0]):
+                            subsection_pos = re.search('\d', xref_entries[0]).start()
+                            xref_entries = xref_entries[0][subsection_pos:].split(' ')
+                        else:
+                            raise SpecViolation('Invalid XRef table')
 
                         try:
                             tmp_xrf_tbl = self.__xref_parse(x, xref_entries, c)
