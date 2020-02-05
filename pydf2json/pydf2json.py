@@ -259,11 +259,19 @@ class PyDF2JSON(object):
                         tmpU_key = self.crypto.genv4r2_U_entry(self.__crypt_handler_info, self.pdf_password)
                     else:
                         tmpU_key = self.crypto.genv4r34_U_entry(self.__crypt_handler_info, self.pdf_password)
-                    if tmpU_key == self.__crypt_handler_info['U']:
-                        self.__crypt_handler_info['file_key'] = self.crypto.retrv4_fkey(self.__crypt_handler_info,
-                                                                                        self.pdf_password)
+                    if self.__crypt_handler_info['revision'] >= 3:
+                        if tmpU_key[0:16] == self.__crypt_handler_info['U'][0:16]:
+                            self.__crypt_handler_info['file_key'] = self.crypto.retrv4_fkey(self.__crypt_handler_info,
+                                                                                            self.pdf_password)
+                        else:
+                            raise Exception('Document password incorrect. Aborting analysis.')
                     else:
-                        raise Exception('Document password incorrect. Aborting analysis.')
+                        if tmpU_key == self.__crypt_handler_info['U']:
+                            self.__crypt_handler_info['file_key'] = self.crypto.retrv4_fkey(self.__crypt_handler_info,
+                                                                                            self.pdf_password)
+                        else:
+                            raise Exception('Document password incorrect. Aborting analysis.')
+
             except Exception as e:
                 raise e
 
