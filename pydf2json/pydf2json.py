@@ -3188,7 +3188,8 @@ class PyDF2JSON(object):
                 if re.match('xref', x[i:i + 4]):
                     o_type = 'xref'
                 if o_type == None:
-                    self.__error_control('SpecViolation', 'startxref offset is misaligned.')
+                    #self.__error_control('SpecViolation', 'startxref offset is misaligned.')
+                    continue # Too many vendors don't give a damn about the alignment. Why should they? Adobe will fix it!
                 if o_type == 'xref':
                     pos = i + 4
                     pos = self.__line_scan(x, pos)[1]
