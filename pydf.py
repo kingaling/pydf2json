@@ -18,7 +18,6 @@
 import pydf2json
 import json
 import argparse
-import re
 
 
 __version__ = '2.3.4'
@@ -42,7 +41,6 @@ def main():
     args = argbuilder()
     pdf_object = pydf2json.PyDF2JSON()
     x = ""
-    jsonpdf_tuple = None
 
     # Check if input file is valid
     if pydf2json.os.path.isfile(args.pdf):
@@ -68,7 +66,7 @@ def main():
 
     # Get PDF
     try:
-        jsonpdf_tuple = pdf_object.GetPDF(x)
+        pdf_object.GetPDF(x)
     except pydf2json.MaxSizeExceeded as e:
         print e
         print 'See command help for max_size override.'
@@ -77,19 +75,12 @@ def main():
         print e
         exit()
 
-    jsonpdf = jsonpdf_tuple[0]
-    #omap = jsonpdf_tuple[1]
-    summary = jsonpdf_tuple[2]
-    del jsonpdf_tuple
-
-    if re.match('exception', str(jsonpdf)):
-        print jsonpdf
-        exit()
-
     if args.show_json:
-        print json.dumps(jsonpdf, ensure_ascii=False, indent=4)
+        pdfstruct = pdf_object.expose_pdfstruct()
+        print json.dumps(pdfstruct, ensure_ascii=False, indent=4)
 
     if not args.no_summary:
+        summary = pdf_object.expose_summary()
         # Parse summary for presentation...
         print 'Summary of PDF attributes:'
         print '--------------------------\n'
@@ -173,8 +164,8 @@ def main():
                         print '\t\t', j
 
         print '\nDocument Hashes:'
-        for i in jsonpdf['Document Hashes']:
-            print '\t{:<10} {:<0}'.format(i, jsonpdf['Document Hashes'][i])
+        for i in summary['Document Hashes']:
+            print '\t{:<10} {:<0}'.format(i, summary['Document Hashes'][i])
 
 
         # New malware index stuff.
@@ -194,6 +185,7 @@ def main():
                         print '\t' + str(tmp_num) + ' misaligned objects or cross-reference tables.'
                     if i == 6:
                         print '\t' + str(tmp_num) + ' unnecessary encodings of named objects. Anti-analysis technique.'
+
 
 if __name__ == '__main__':
     main()

@@ -164,6 +164,21 @@ class PyDF2JSON(object):
     __crypt_handler_info['o_keys'] = {}
     __crypt_handler_info['o_ignore'] = []
     __crypt_handler_info['o_ignore'].append('NO_DECRYPT')
+    __crypt_handler_info['run'] = 0
+
+    # Object map:
+    __omap = dict()
+    __omap['IO'] = {}
+    __omap['OS'] = {}
+    __omap['IO Offsets'] = {}
+    __omap['XRT Offsets'] = []
+    __omap['XRS Offsets'] = []
+
+    # PDF structure storage
+    __PDF = dict()
+
+    # Summary of PDF properties
+    __summary = dict()
 
     # Malware Index:
     # Each index has a max value of 0xFF (255)
@@ -181,6 +196,14 @@ class PyDF2JSON(object):
     # Starred items (*) will be calculated during __get_summary()
 
 
+    def expose_pdfstruct(self):
+        return self.__PDF
+
+
+    def expose_summary(self):
+        return self.__summary
+
+
     def __error_control(self, etype, message, misc=''):
         if re.match('SpecViolation', etype):
             raise SpecViolation('SpecViolation' + '(' + message + ' (' + misc + ')' + ')')
@@ -189,11 +212,9 @@ class PyDF2JSON(object):
 
 
     def GetPDF(self, x):
-        PDF = {}
-        summary = {}
-        PDF['Size'] = len(x)
+        self.__PDF['Size'] = len(x)
         # Check max_size. Convert size to MB
-        if (PDF['Size'] / 1048576.0) > self.max_size:
+        if (self.__PDF['Size'] / 1048576.0) > self.max_size:
             raise MaxSizeExceeded('PDF length exceeds ' + str(self.max_size) + 'MB. Aborting analysis.')
 
         if self.dump_streams:
@@ -210,33 +231,35 @@ class PyDF2JSON(object):
                     self.dump_loc = self.dump_loc + '/' + self.__temp_dir + '/'
             if not os.path.exists(self.dump_loc):
                 os.makedirs(self.dump_loc)
-            summary['Temp File Location'] = self.dump_loc
-            summary['Dumped Files'] = []
+            self.__summary['Temp File Location'] = self.dump_loc
+            self.__summary['Dumped Files'] = []
 
         # Verify we have PDF here.
         try:
-            PDF['Header'] = self.__header_scan(x)
+            self.__PDF['Header'] = self.__header_scan(x)
         except Exception as e:
             raise e
 
         # Hash document
-        PDF['Document Hashes'] = {}
-        PDF['Document Hashes']['MD5'] = hashlib.md5(x).hexdigest().upper()
-        PDF['Document Hashes']['SHA1'] = hashlib.sha1(x).hexdigest().upper()
-        PDF['Document Hashes']['SHA256'] = hashlib.sha256(x).hexdigest().upper()
+        self.__PDF['Document Hashes'] = {}
+        self.__PDF['Document Hashes']['MD5'] = hashlib.md5(x).hexdigest().upper()
+        self.__PDF['Document Hashes']['SHA1'] = hashlib.sha1(x).hexdigest().upper()
+        self.__PDF['Document Hashes']['SHA256'] = hashlib.sha256(x).hexdigest().upper()
+        self.__summary['Document Hashes'] = self.__PDF['Document Hashes']
 
         # Find start point for reading body....
-        if len(PDF['Header']) == 2:
-            s_offset = PDF['Header']['Comment']['Length'] + PDF['Header']['Comment']['Offset'] + 1
+        if len(self.__PDF['Header']) == 2:
+            s_offset = self.__PDF['Header']['Comment']['Length'] + self.__PDF['Header']['Comment']['Offset'] + 1
         else:
-            s_offset = PDF['Header']['Version']['Length'] + PDF['Header']['Version']['Offset'] + 1
+            s_offset = self.__PDF['Header']['Version']['Length'] + self.__PDF['Header']['Version']['Offset'] + 1
 
         # Check for encryption
         # If found set global file key
-        try:
-            self.get_encryption_handler(x, summary)
-        except Exception as e:
-            raise e
+        if not self.__crypt_handler_info['run']:
+            try:
+                self.get_encryption_handler(x)
+            except Exception as e:
+                raise e
 
         if self.__is_crypted:
             if not 'Crypto.Cipher.AES' in sys.modules:
@@ -275,39 +298,27 @@ class PyDF2JSON(object):
             except Exception as e:
                 raise e
 
-        # Proceed with PDF body processing
         try:
             self.__overall_mal_index = [0, 0, 0, 0, 0, 0, 0, 0]
-            PDF['Body'] = self.__body_scan(x, s_offset, summary)
+            self.__body_scan(x, s_offset)
+            self.__assemble_map("IO")
         except Exception as e:
             raise e
 
-        #PDF['Body'] = self.__body_scan(x, s_offset) # Debugging...
-        # The above line got all indirect objects, trailers, xref tables etc
-        # and preserved the position and length of all streams.
-        # Now go get the streams... :)
         try:
-            self.__process_streams(x, PDF['Body'], summary)
+            self.__process_streams(x)
+            self.__assemble_map("OS")
         except Exception as e:
             raise e
-
-         # Create object map.
-        omap = {}
-        omap['IO'] = {}
-        omap['OS'] = {}
-        omap['IO Offsets'] = {}
-        omap['XRT Offsets'] = []
-        omap['XRS Offsets'] = []
-        self.__assemble_map(PDF['Body'], omap)
 
         # Assemble a summary of things.
         try:
-            ret = self.__get_summary(PDF, summary, omap)
+            self.__get_summary()
         except Exception as e:
             raise e
 
-        summary['Malware Index'] = self.__overall_mal_index
-        return PDF, omap, summary
+        self.__summary['Malware Index'] = self.__overall_mal_index
+        return
 
 
     def __process_arbitrary_data(self, arb):
@@ -334,24 +345,24 @@ class PyDF2JSON(object):
         return arb_type, arb_data
 
 
-    def __get_summary(self, pdf, summary, omap):
+    def __get_summary(self):
         processed_objects = []
 
         def __find_root():
             # Find the root objects via trailer entry...
             root_objects = []
             xref_entries = []
-            if pdf['Body'].has_key('Trailers'):
-                for i in range(0, len(pdf['Body']['Trailers'])):
-                    if pdf['Body']['Trailers'][i]['Value'].has_key('Root'):
-                        root_entry = pdf['Body']['Trailers'][i]['Value']['Root']['Value'].replace(' R', '')
+            if self.__PDF['Body'].has_key('Trailers'):
+                for i in range(0, len(self.__PDF['Body']['Trailers'])):
+                    if self.__PDF['Body']['Trailers'][i]['Value'].has_key('Root'):
+                        root_entry = self.__PDF['Body']['Trailers'][i]['Value']['Root']['Value'].replace(' R', '')
                         if not root_entry in root_objects:
                             root_objects.append(root_entry)
 
-            if not pdf['Body'].has_key('Start XRef Entries'):
+            if not self.__PDF['Body'].has_key('Start XRef Entries'):
                 self.__error_control('SpecViolation', 'startxref entry is missing')
 
-            for i in pdf['Body']['Start XRef Entries']:
+            for i in self.__PDF['Body']['Start XRef Entries']:
                 if not i == str(0): # Dummy xref table pointer for linear PDF's on page 1 of document.
                     xref_entries.append(int(i))
 
@@ -361,30 +372,30 @@ class PyDF2JSON(object):
             # Go find more root objects
             for i in xref_entries:
                 # Check map for this offset. If it's not found, xref tables are mis-aligned and this is probably malware.
-                if not omap['IO Offsets'].has_key(i) and not i in omap['XRT Offsets']:
+                if not self.__omap['IO Offsets'].has_key(i) and not i in self.__omap['XRT Offsets']:
                     self.__update_mal_index(1, 5)
 
-            if pdf['Body'].has_key('XRef Streams'):
+            if self.__PDF['Body'].has_key('XRef Streams'):
                 #back_ref = []
-                for i in range(0, len(pdf['Body']['XRef Streams'])):
-                    entry_len = len(pdf['Body']['XRef Streams'][i])
-                    back_ref = pdf['Body']['XRef Streams'][i][entry_len - 1]['Back Ref']
-                    if omap['IO'].has_key(back_ref):
-                        for j in range(0, len(omap['IO'][back_ref])):
-                            if not omap['IO'][back_ref][j][1] in xref_entries:
-                                xref_entries.append(omap['IO'][back_ref][j][1])
+                for i in range(0, len(self.__PDF['Body']['XRef Streams'])):
+                    entry_len = len(self.__PDF['Body']['XRef Streams'][i])
+                    back_ref = self.__PDF['Body']['XRef Streams'][i][entry_len - 1]['Back Ref']
+                    if self.__omap['IO'].has_key(back_ref):
+                        for j in range(0, len(self.__omap['IO'][back_ref])):
+                            if not self.__omap['IO'][back_ref][j][1] in xref_entries:
+                                xref_entries.append(self.__omap['IO'][back_ref][j][1])
                                 # The last offset in xref_entry is the active one.
 
             # Add entries to root_obects
             for i in xref_entries:
-                if omap['IO Offsets'].has_key(i):
-                    obj = omap['IO Offsets'][i]
-                    io_entry = omap['IO'][obj]
+                if self.__omap['IO Offsets'].has_key(i):
+                    obj = self.__omap['IO Offsets'][i]
+                    io_entry = self.__omap['IO'][obj]
                     for j in range(0, len(io_entry)):
                         io_index = io_entry[j][0]
-                        if type(pdf['Body']['Indirect Objects'][io_index][obj]['Value']) == dict:
-                            if pdf['Body']['Indirect Objects'][io_index][obj]['Value'].has_key('Root'):
-                                tmp_root_obj = pdf['Body']['Indirect Objects'][io_index][obj]['Value']['Root']['Value'].replace(' R', '')
+                        if type(self.__PDF['Body']['Indirect Objects'][io_index][obj]['Value']) == dict:
+                            if self.__PDF['Body']['Indirect Objects'][io_index][obj]['Value'].has_key('Root'):
+                                tmp_root_obj = self.__PDF['Body']['Indirect Objects'][io_index][obj]['Value']['Root']['Value'].replace(' R', '')
                                 if not tmp_root_obj in root_objects:
                                     root_objects.append(tmp_root_obj)
 
@@ -405,7 +416,7 @@ class PyDF2JSON(object):
                     if c_actions.has_key('WC'):
                         if c_actions['WC']['Value Type'] == 'Indirect Reference':
                             wc_temp = c_actions['WC']['Value'].replace(' R', '')
-                            wc_map = self.__map_object(pdf['Body'], omap, wc_temp, None, True)
+                            wc_map = self.__map_object(wc_temp, None, True)
                             for i in wc_map:
                                 for j in range(0, len(wc_map[i])):
                                     wc_val = __catalog_additional_actions(wc_map[i][j]['Value']['Value'])
@@ -415,7 +426,7 @@ class PyDF2JSON(object):
                     if c_actions.has_key('WS'):
                         if c_actions['WS']['Value Type'] == 'Indirect Reference':
                             ws_temp = c_actions['WS']['Value'].replace(' R', '')
-                            ws_map = self.__map_object(pdf['Body'], omap, ws_temp, None, True)
+                            ws_map = self.__map_object(ws_temp, None, True)
                             for i in ws_map:
                                 for j in range(0, len(ws_map[i])):
                                     ws_val = __catalog_additional_actions(ws_map[i][j]['Value']['Value'])
@@ -425,7 +436,7 @@ class PyDF2JSON(object):
                     if c_actions.has_key('DS'):
                         if c_actions['DS']['Value Type'] == 'Indirect Reference':
                             ds_temp = c_actions['DS']['Value'].replace(' R', '')
-                            ds_map = self.__map_object(pdf['Body'], omap, ds_temp, None, True)
+                            ds_map = self.__map_object(ds_temp, None, True)
                             for i in ds_map:
                                 for j in range(0, len(ds_map[i])):
                                     ds_val = __catalog_additional_actions(ds_map[i][j]['Value']['Value'])
@@ -435,7 +446,7 @@ class PyDF2JSON(object):
                     if c_actions.has_key('WP'):
                         if c_actions['WP']['Value Type'] == 'Indirect Reference':
                             wp_temp = c_actions['WP']['Value'].replace(' R', '')
-                            wp_map = self.__map_object(pdf['Body'], omap, wp_temp, None, True)
+                            wp_map = self.__map_object(wp_temp, None, True)
                             for i in wp_map:
                                 for j in range(0, len(wp_map[i])):
                                     wp_val = __catalog_additional_actions(wp_map[i][j]['Value']['Value'])
@@ -445,7 +456,7 @@ class PyDF2JSON(object):
                     if c_actions.has_key('DP'):
                         if c_actions['DP']['Value Type'] == 'Indirect Reference':
                             dp_temp = c_actions['DP']['Value'].replace(' R', '')
-                            dp_map = self.__map_object(pdf['Body'], omap, dp_temp, None, True)
+                            dp_map = self.__map_object(dp_temp, None, True)
                             for i in dp_map:
                                 for j in range(0, len(dp_map[i])):
                                     dp_val = __catalog_additional_actions(dp_map[i][j]['Value']['Value'])
@@ -476,43 +487,43 @@ class PyDF2JSON(object):
 
             for i in root_objects:
                 processed_objects.append(i)
-                root_map = self.__map_object(pdf['Body'], omap, i, None)
+                root_map = self.__map_object(i, None)
                 for j in root_map:
                     for k in range(0, len(root_map[j])):
                         cat_index = root_map[j][k]['Index']
 
-                        if pdf['Body'][j][cat_index][i]['Value']['Type']['Value'] == 'Catalog':
-                            if pdf['Body'][j][cat_index][i]['Value'].has_key('Pages'):
-                                pages.append(pdf['Body'][j][cat_index][i]['Value']['Pages']['Value'].replace(' R', ''))
+                        if self.__PDF['Body'][j][cat_index][i]['Value']['Type']['Value'] == 'Catalog':
+                            if self.__PDF['Body'][j][cat_index][i]['Value'].has_key('Pages'):
+                                pages.append(self.__PDF['Body'][j][cat_index][i]['Value']['Pages']['Value'].replace(' R', ''))
                             else:
                                 self.__error_control('SpecViolation', 'Required \'Pages\' entry missing.')
 
-                            if pdf['Body'][j][cat_index][i]['Value'].has_key('AcroForm'):
-                                if pdf['Body'][j][cat_index][i]['Value']['AcroForm']['Value Type'] == 'Indirect Reference':
-                                    acro_ref = pdf['Body'][j][cat_index][i]['Value']['AcroForm']['Value'].replace(' R', '')
+                            if self.__PDF['Body'][j][cat_index][i]['Value'].has_key('AcroForm'):
+                                if self.__PDF['Body'][j][cat_index][i]['Value']['AcroForm']['Value Type'] == 'Indirect Reference':
+                                    acro_ref = self.__PDF['Body'][j][cat_index][i]['Value']['AcroForm']['Value'].replace(' R', '')
                                     processed_objects.append(acro_ref)
-                                    acro_val = self.__map_object(pdf['Body'], omap, acro_ref, None, True)
+                                    acro_val = self.__map_object(acro_ref, None, True)
                                     for l in acro_val:
                                         for m in range(0, len(acro_val[l])):
                                             acroforms.append(acro_val[l][m]['Value']['Value'])
-                                if pdf['Body'][j][cat_index][i]['Value']['AcroForm']['Value Type'] == 'Dictionary':
-                                    acroforms.append(pdf['Body'][j][cat_index][i]['Value']['AcroForm']['Value'])
+                                if self.__PDF['Body'][j][cat_index][i]['Value']['AcroForm']['Value Type'] == 'Dictionary':
+                                    acroforms.append(self.__PDF['Body'][j][cat_index][i]['Value']['AcroForm']['Value'])
 
-                            if pdf['Body'][j][cat_index][i]['Value'].has_key('OpenAction'):
-                                openactions.append(pdf['Body'][j][cat_index][i]['Value']['OpenAction'])
+                            if self.__PDF['Body'][j][cat_index][i]['Value'].has_key('OpenAction'):
+                                openactions.append(self.__PDF['Body'][j][cat_index][i]['Value']['OpenAction'])
 
-                            if pdf['Body'][j][cat_index][i]['Value'].has_key('Names'):
-                                names.append(pdf['Body'][j][cat_index][i]['Value']['Names'])
+                            if self.__PDF['Body'][j][cat_index][i]['Value'].has_key('Names'):
+                                names.append(self.__PDF['Body'][j][cat_index][i]['Value']['Names'])
 
-                            if pdf['Body'][j][cat_index][i]['Value'].has_key('Outlines'):
-                                outlines.append(pdf['Body'][j][cat_index][i]['Value']['Outlines']['Value'])
+                            if self.__PDF['Body'][j][cat_index][i]['Value'].has_key('Outlines'):
+                                outlines.append(self.__PDF['Body'][j][cat_index][i]['Value']['Outlines']['Value'])
 
-                            if pdf['Body'][j][cat_index][i]['Value'].has_key('URI'):
-                                uris.append(pdf['Body'][j][cat_index][i]['Value']['URI']['Value'])
+                            if self.__PDF['Body'][j][cat_index][i]['Value'].has_key('URI'):
+                                uris.append(self.__PDF['Body'][j][cat_index][i]['Value']['URI']['Value'])
 
-                            if pdf['Body'][j][cat_index][i]['Value'].has_key('AA'):
-                                #cat_a.append(pdf['Body'][j][cat_index][i]['Value']['AA']['Value'])
-                                acts = __catalog_additional_actions(pdf['Body'][j][cat_index][i]['Value']['AA']['Value'])
+                            if self.__PDF['Body'][j][cat_index][i]['Value'].has_key('AA'):
+                                #cat_a.append(self.__PDF['Body'][j][cat_index][i]['Value']['AA']['Value'])
+                                acts = __catalog_additional_actions(self.__PDF['Body'][j][cat_index][i]['Value']['AA']['Value'])
                                 aa['cat_adds'].append({i: acts})
                         else:
                             self.__error_control('SpecViolation', 'Required \'Catalog\' entry missing.')
@@ -524,21 +535,21 @@ class PyDF2JSON(object):
         def __get_pagecount():
             p_entry = pages[-1:][0]
             pagecount = None
-            if omap['IO'].has_key(p_entry):
-                index = omap['IO'][p_entry][-1:][0][0]
-                if pdf['Body']['Indirect Objects'][index][p_entry]['Value'].has_key('Count'):
-                    if pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value Type'] == 'Unknown':
-                        pagecount = int(pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value'])
-                    if pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value Type'] == 'Indirect Reference':
-                        ir_index = pdf['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value'].replace(' R', '')
+            if self.__omap['IO'].has_key(p_entry):
+                index = self.__omap['IO'][p_entry][-1:][0][0]
+                if self.__PDF['Body']['Indirect Objects'][index][p_entry]['Value'].has_key('Count'):
+                    if self.__PDF['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value Type'] == 'Unknown':
+                        pagecount = int(self.__PDF['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value'])
+                    if self.__PDF['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value Type'] == 'Indirect Reference':
+                        ir_index = self.__PDF['Body']['Indirect Objects'][index][p_entry]['Value']['Count']['Value'].replace(' R', '')
                         raise Exception('Fix loop in __get_pagecount for indirect object trace')
-            if omap['OS'].has_key(p_entry):
-                index = omap['OS'][p_entry][-1:][0][0]
-                if pdf['Body']['Object Streams'][index][p_entry]['Value'].has_key('Count'):
-                    if pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value Type'] == 'Unknown':
-                        pagecount = int(pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value'])
-                    if pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value Type'] == 'Indirect Reference':
-                        ir_index = pdf['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value'].replace(' R', '')
+            if self.__omap['OS'].has_key(p_entry):
+                index = self.__omap['OS'][p_entry][-1:][0][0]
+                if self.__PDF['Body']['Object Streams'][index][p_entry]['Value'].has_key('Count'):
+                    if self.__PDF['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value Type'] == 'Unknown':
+                        pagecount = int(self.__PDF['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value'])
+                    if self.__PDF['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value Type'] == 'Indirect Reference':
+                        ir_index = self.__PDF['Body']['Object Streams'][index][p_entry]['Value']['Count']['Value'].replace(' R', '')
                         raise Exception('Fix loop in __get_pagecount for indirect object trace')
             if pagecount == None:
                 raise Exception('No pages found')
@@ -556,7 +567,7 @@ class PyDF2JSON(object):
                     if p_actions.has_key('O'):
                         if p_actions['O']['Value Type'] == 'Indirect Reference':
                             o_temp = p_actions['O']['Value'].replace(' R', '')
-                            o_map = self.__map_object(pdf['Body'], omap, o_temp, None, True)
+                            o_map = self.__map_object(o_temp, None, True)
                             for i in o_map:
                                 for j in range(0, len(o_map[i])):
                                     o_val = __page_additional_actions(o_map[i][j]['Value']['Value'])
@@ -566,7 +577,7 @@ class PyDF2JSON(object):
                     if p_actions.has_key('C'):
                         if p_actions['C']['Value Type'] == 'Indirect Reference':
                             c_temp = p_actions['C']['Value'].replace(' R', '')
-                            c_map = self.__map_object(pdf['Body'], omap, c_temp, None, True)
+                            c_map = self.__map_object(c_temp, None, True)
                             for i in c_map:
                                 for j in range(0, len(c_map[i])):
                                     c_val = __page_additional_actions(c_map[i][j]['Value']['Value'])
@@ -594,7 +605,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('E'):
                             if an_actions['E']['Value Type'] == 'Indirect Reference':
                                 e_temp = an_actions['E']['Value'].replace(' R', '')
-                                e_map = self.__map_object(pdf['Body'], omap, e_temp, None, True)
+                                e_map = self.__map_object(e_temp, None, True)
                                 for i in e_map:
                                     for j in range(0, len(e_map[i])):
                                         e_val = __annot_additional_actions(e_map[i][j]['Value']['Value'])
@@ -604,7 +615,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('X'):
                             if an_actions['X']['Value Type'] == 'Indirect Reference':
                                 x_temp = an_actions['X']['Value'].replace(' R', '')
-                                x_map = self.__map_object(pdf['Body'], omap, x_temp, None, True)
+                                x_map = self.__map_object(x_temp, None, True)
                                 for i in x_map:
                                     for j in range(0, len(x_map[i])):
                                         x_val = __annot_additional_actions(x_map[i][j]['Value']['Value'])
@@ -614,7 +625,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('D'):
                             if an_actions['D']['Value Type'] == 'Indirect Reference':
                                 d_temp = an_actions['D']['Value'].replace(' R', '')
-                                d_map = self.__map_object(pdf['Body'], omap, d_temp, None, True)
+                                d_map = self.__map_object(d_temp, None, True)
                                 for i in d_map:
                                     for j in range(0, len(d_map[i])):
                                         d_val = __annot_additional_actions(d_map[i][j]['Value']['Value'])
@@ -624,7 +635,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('U'):
                             if an_actions['U']['Value Type'] == 'Indirect Reference':
                                 u_temp = an_actions['U']['Value'].replace(' R', '')
-                                u_map = self.__map_object(pdf['Body'], omap, u_temp, None, True)
+                                u_map = self.__map_object(u_temp, None, True)
                                 for i in u_map:
                                     for j in range(0, len(u_map[i])):
                                         u_val = __annot_additional_actions(u_map[i][j]['Value']['Value'])
@@ -634,7 +645,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('Fo'):
                             if an_actions['Fo']['Value Type'] == 'Indirect Reference':
                                 fo_temp = an_actions['Fo']['Value'].replace(' R', '')
-                                fo_map = self.__map_object(pdf['Body'], omap, fo_temp, None, True)
+                                fo_map = self.__map_object(fo_temp, None, True)
                                 for i in fo_map:
                                     for j in range(0, len(fo_map[i])):
                                         fo_val = __annot_additional_actions(fo_map[i][j]['Value']['Value'])
@@ -644,7 +655,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('Bl'):
                             if an_actions['Bl']['Value Type'] == 'Indirect Reference':
                                 bl_temp = an_actions['Bl']['Value'].replace(' R', '')
-                                bl_map = self.__map_object(pdf['Body'], omap, bl_temp, None, True)
+                                bl_map = self.__map_object(bl_temp, None, True)
                                 for i in bl_map:
                                     for j in range(0, len(bl_map[i])):
                                         bl_val = __annot_additional_actions(bl_map[i][j]['Value']['Value'])
@@ -654,7 +665,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('PO'):
                             if an_actions['PO']['Value Type'] == 'Indirect Reference':
                                 po_temp = an_actions['PO']['Value'].replace(' R', '')
-                                po_map = self.__map_object(pdf['Body'], omap, po_temp, None, True)
+                                po_map = self.__map_object(po_temp, None, True)
                                 for i in po_map:
                                     for j in range(0, len(po_map[i])):
                                         po_val = __annot_additional_actions(po_map[i][j]['Value']['Value'])
@@ -664,7 +675,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('PC'):
                             if an_actions['PC']['Value Type'] == 'Indirect Reference':
                                 pc_temp = an_actions['PC']['Value'].replace(' R', '')
-                                pc_map = self.__map_object(pdf['Body'], omap, pc_temp, None, True)
+                                pc_map = self.__map_object(pc_temp, None, True)
                                 for i in pc_map:
                                     for j in range(0, len(pc_map[i])):
                                         pc_val = __annot_additional_actions(pc_map[i][j]['Value']['Value'])
@@ -674,7 +685,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('PV'):
                             if an_actions['PV']['Value Type'] == 'Indirect Reference':
                                 pv_temp = an_actions['PV']['Value'].replace(' R', '')
-                                pv_map = self.__map_object(pdf['Body'], omap, pv_temp, None, True)
+                                pv_map = self.__map_object(pv_temp, None, True)
                                 for i in pv_map:
                                     for j in range(0, len(pv_map[i])):
                                         pv_val = __annot_additional_actions(pv_map[i][j]['Value']['Value'])
@@ -684,7 +695,7 @@ class PyDF2JSON(object):
                         if an_actions.has_key('PI'):
                             if an_actions['PI']['Value Type'] == 'Indirect Reference':
                                 pi_temp = an_actions['PI']['Value'].replace(' R', '')
-                                pi_map = self.__map_object(pdf['Body'], omap, pi_temp, None, True)
+                                pi_map = self.__map_object(pi_temp, None, True)
                                 for i in pi_map:
                                     for j in range(0, len(pi_map[i])):
                                         pi_val = __annot_additional_actions(pi_map[i][j]['Value']['Value'])
@@ -708,7 +719,7 @@ class PyDF2JSON(object):
                                 rect_area.append(float(rect[i]['Value']))
                             if rect[i]['Value Type'] == 'Indirect Reference':
                                 rect_val = rect[i]['Value'].replace(' R', '')
-                                rect_map = self.__map_object(pdf['Body'], omap, rect_val, None, True)
+                                rect_map = self.__map_object(rect_val, None, True)
                                 processed_objects.append(rect_val)
                                 for i in rect_map:
                                     for j in range(0, len(rect_map[i])):
@@ -716,7 +727,7 @@ class PyDF2JSON(object):
                     if type(rect) == dict:
                         if rect['Value Type'] == 'Indirect Reference':
                             rect_val = rect['Value'].replace(' R', '')
-                            rect_map = self.__map_object(pdf['Body'], omap, rect_val, None, True)
+                            rect_map = self.__map_object(rect_val, None, True)
                             processed_objects.append(rect_val)
                             for i in rect_map:
                                 for j in range(0, len(rect_map[i])):
@@ -746,29 +757,29 @@ class PyDF2JSON(object):
                                 uri.append(a['Value']['URI']['Value'])
                             if a['Value']['URI']['Value Type'] == 'Indirect Reference':
                                 a_ref = a['Value']['URI']['Value'].replace(' R', '')
-                                a_map = self.__map_object(pdf['Body'], omap, a_ref, None, True)
+                                a_map = self.__map_object(a_ref, None, True)
                                 processed_objects.append(a_ref)
                                 for j in a_map:
                                     for k in range(0, len(a_map[j])):
                                         temp_sub_type, uri = __get_hyperlink(a_map[j][k]['Value'])
                                         if len(uri) == 1:
-                                            if not summary['Link Annotations'].has_key(page):
-                                                summary['Link Annotations'][page] = []
-                                            summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
+                                            if not self.__summary['Link Annotations'].has_key(page):
+                                                self.__summary['Link Annotations'][page] = []
+                                            self.__summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
                                             temp_sub_type = ''
                                             uri = []
 
                     if a['Value Type'] == 'Indirect Reference':
                         a_ref = a['Value'].replace(' R', '')
-                        a_map = self.__map_object(pdf['Body'], omap, a_ref, None, True)
+                        a_map = self.__map_object(a_ref, None, True)
                         processed_objects.append(a_ref)
                         for j in a_map:
                             for k in range(0, len(a_map[j])):
                                 sub_type, uri = __get_hyperlink(a_map[j][k]['Value'])
                                 if len(uri) == 1:
-                                    if not summary['Link Annotations'].has_key(page):
-                                        summary['Link Annotations'][page] = []
-                                    summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
+                                    if not self.__summary['Link Annotations'].has_key(page):
+                                        self.__summary['Link Annotations'][page] = []
+                                    self.__summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
                                     sub_type = []
                                     uri = []
                     return sub_type, uri
@@ -783,7 +794,7 @@ class PyDF2JSON(object):
                         annots_ref = annots['Value'].replace(' R', '')
                         # Map it
                         if not annots_ref in processed_objects:
-                            map_res = self.__map_object(pdf['Body'], omap, annots_ref, None, True)
+                            map_res = self.__map_object(annots_ref, None, True)
                             processed_objects.append(annots_ref)
                             for i in map_res:
                                 for j in range(0, len(map_res[i])):
@@ -803,17 +814,17 @@ class PyDF2JSON(object):
                         uri = []
                         sub_type = []
 
-                        if not summary.has_key('Link Annotations'):
-                            summary['Link Annotations'] = {}
+                        if not self.__summary.has_key('Link Annotations'):
+                            self.__summary['Link Annotations'] = {}
 
                         if annots.has_key('A'):
                             sub_type, uri = __get_hyperlink(annots['A'])
 
 
                         if len(uri) == 1 and len(sub_type) == 1 and len(rect_area) == 4:
-                            if not summary['Link Annotations'].has_key(page):
-                                summary['Link Annotations'][page] = []
-                            summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
+                            if not self.__summary['Link Annotations'].has_key(page):
+                                self.__summary['Link Annotations'][page] = []
+                            self.__summary['Link Annotations'][page].append({'Link': uri[0], 'Dimensions': rect_area})
                 if annots.has_key('AA'):
                     acts = __annot_additional_actions(annots['AA']['Value'])
                     aa['annot_adds'].append(acts)
@@ -827,7 +838,7 @@ class PyDF2JSON(object):
                     if type(obj[i]) == str:
                         if not obj[i] in processed_objects:
                             processed_objects.append(obj[i])
-                            page_map = self.__map_object(pdf['Body'], omap, obj[i], None, True)
+                            page_map = self.__map_object(obj[i], None, True)
                             for j in page_map:
                                 for k in range(0, len(page_map[j])):
                                     page_value = page_map[j][k]['Value']['Value']
@@ -854,7 +865,7 @@ class PyDF2JSON(object):
                         __process_pages(obj['Value'])
                     if obj['Value Type'] == 'Indirect Reference':
                         kids_value = obj['Value'].replace(' R', '')
-                        page_map = self.__map_object(pdf['Body'], omap, kids_value, None, True)
+                        page_map = self.__map_object(kids_value, None, True)
                         for j in page_map:
                             for k in range(0, len(page_map[j])):
                                 page_value = page_map[j][k]['Value']['Value']
@@ -889,7 +900,7 @@ class PyDF2JSON(object):
                     if a_actions.has_key('F'):
                         if a_actions['F']['Value Type'] == 'Indirect Reference':
                             f_temp = a_actions['F']['Value'].replace(' R', '')
-                            f_map = self.__map_object(pdf['Body'], omap, f_temp, None, True)
+                            f_map = self.__map_object(f_temp, None, True)
                             for i in f_map:
                                 for j in range(0, len(f_map[i])):
                                     f_val = __form_additional_actions(f_map[i][j]['Value']['Value'])
@@ -899,7 +910,7 @@ class PyDF2JSON(object):
                     if a_actions.has_key('K'):
                         if a_actions['K']['Value Type'] == 'Indirect Reference':
                             k_temp = a_actions['K']['Value'].replace(' R', '')
-                            k_map = self.__map_object(pdf['Body'], omap, k_temp, None, True)
+                            k_map = self.__map_object(k_temp, None, True)
                             for i in k_map:
                                 for j in range(0, len(k_map[i])):
                                     k_val = __form_additional_actions(k_map[i][j]['Value']['Value'])
@@ -909,7 +920,7 @@ class PyDF2JSON(object):
                     if a_actions.has_key('V'):
                         if a_actions['V']['Value Type'] == 'Indirect Reference':
                             v_temp = a_actions['V']['Value'].replace(' R', '')
-                            v_map = self.__map_object(pdf['Body'], omap, v_temp, None, True)
+                            v_map = self.__map_object(v_temp, None, True)
                             for i in v_map:
                                 for j in range(0, len(v_map[i])):
                                     v_val = __form_additional_actions(v_map[i][j]['Value']['Value'])
@@ -919,7 +930,7 @@ class PyDF2JSON(object):
                     if a_actions.has_key('C'):
                         if a_actions['C']['Value Type'] == 'Indirect Reference':
                             c_temp = a_actions['C']['Value'].replace(' R', '')
-                            c_map = self.__map_object(pdf['Body'], omap, c_temp, None, True)
+                            c_map = self.__map_object(c_temp, None, True)
                             for i in c_map:
                                 for j in range(0, len(c_map[i])):
                                     c_val = __form_additional_actions(c_map[i][j]['Value']['Value'])
@@ -958,7 +969,7 @@ class PyDF2JSON(object):
                     if re.search('[0-9]{1,6}\s[0-9]{1,6}\sR', acros):
                         i_obj = acros.replace(' R', '')
                         processed_objects.append(i_obj)
-                        i_obj_map = self.__map_object(pdf['Body'], omap, i_obj, None, True)
+                        i_obj_map = self.__map_object(i_obj, None, True)
                         for i in i_obj_map:
                             for j in range(0, len(i_obj_map[i])):
                                 if i_obj_map[i][j]['Value']['Value Type'] == 'Array':
@@ -979,7 +990,7 @@ class PyDF2JSON(object):
                     if acros.has_key('Value Type'):
                         if acros['Value Type'] == 'Indirect Reference':
                             acro_ref = acros['Value'].replace(' R', '')
-                            acro_val = self.__map_object(pdf['Body'], omap, acro_ref, None, True)
+                            acro_val = self.__map_object(acro_ref, None, True)
                             for i in acro_val:
                                 for j in range(0, len(acro_val[i])):
                                     if type(acro_val[i][j]['Value']) == dict:
@@ -995,7 +1006,7 @@ class PyDF2JSON(object):
                     if acros.has_key('A'):
                         if acros['A']['Value Type'] == 'Indirect Reference':
                             a_ref = acros['A']['Value'].replace(' R', '')
-                            a_val = self.__map_object(pdf['Body'], omap, a_ref, None, True)
+                            a_val = self.__map_object(a_ref, None, True)
                             for i in a_val:
                                 for j in range(0, len(a_val[i])):
                                     if type(a_val[i][j]['Value']) == dict:
@@ -1007,7 +1018,7 @@ class PyDF2JSON(object):
                     if acros.has_key('S'):
                         if acros['S']['Value Type'] == 'Indirect Reference':
                             s_ref = acros['S']['Value'].replace(' R', '')
-                            s_val = self.__map_object(pdf['Body'], omap, s_ref, None, True)
+                            s_val = self.__map_object(s_ref, None, True)
                             for i in s_val:
                                 for j in range(0, len(s_val[i])):
                                     if type(s_val[i][j]['Value']) == dict:
@@ -1049,7 +1060,7 @@ class PyDF2JSON(object):
                     if obj.has_key('Value Type'):
                         if obj['Value Type'] == 'Indirect Reference':
                             embedded_obj = obj['Value'].replace(' R', '')
-                            ref_embedded = self.__map_object(pdf['Body'], omap, embedded_obj, None, True)
+                            ref_embedded = self.__map_object(embedded_obj, None, True)
                             for j in ref_embedded:
                                 for k in range(0, len(ref_embedded[j])):
                                     __process_named_item(ref_embedded[j][k])
@@ -1094,7 +1105,7 @@ class PyDF2JSON(object):
                 if names.has_key('Value Type'):
                     if names['Value Type'] == 'Indirect Reference':
                         names_ref = names['Value'].replace(' R', '')
-                        names_val = self.__map_object(pdf['Body'], omap, names_ref, None, True)
+                        names_val = self.__map_object(names_ref, None, True)
                         for i in names_val:
                             for j in range(0, len(names_val[i])):
                                 __process_names(names_val[i][j]['Value'])
@@ -1143,7 +1154,7 @@ class PyDF2JSON(object):
                         loc = obj['JS']['Value'].replace(' R', '')
                         if not loc in processed_objects:
                             processed_objects.append(loc)
-                            loc_map = self.__map_object(pdf['Body'], omap, loc, None, True)
+                            loc_map = self.__map_object(loc, None, True)
                             for j in loc_map:
                                 for k in range(0, len(loc_map[j])):
                                     loc_val = loc_map[j][k]['Value']
@@ -1153,7 +1164,7 @@ class PyDF2JSON(object):
                     loc = obj['Location'].replace(' R', '')
                     if not loc in processed_objects:
                         processed_objects.append(loc)
-                        loc_map = self.__map_object(pdf['Body'], omap, loc, None, True)
+                        loc_map = self.__map_object(loc, None, True)
                         for j in loc_map:
                             for k in range(0, len(loc_map[j])):
                                 loc_val = loc_map[j][k]['Value']
@@ -1167,7 +1178,7 @@ class PyDF2JSON(object):
                 if re.search('[0-9]{1,6}\s[0-9]{1,6}\sR', obj):
                     i_obj = obj.replace(' R', '')
                     processed_objects.append(i_obj)
-                    i_obj_map = self.__map_object(pdf['Body'], omap, i_obj, None, True)
+                    i_obj_map = self.__map_object(i_obj, None, True)
                     for j in i_obj_map:
                         for k in range(0, len(i_obj_map[j])):
                             i_obj_val = i_obj_map[j][k]['Value']
@@ -1177,21 +1188,21 @@ class PyDF2JSON(object):
 
 
         def __validate_xref():
-            if omap.has_key('XRT Offsets'):
-                for i in omap['XRT Offsets']:
+            if self.__omap.has_key('XRT Offsets'):
+                for i in self.__omap['XRT Offsets']:
                     tmpo = str(i)
-                    if not tmpo in pdf['Body']['Start XRef Entries']:
+                    if not tmpo in self.__PDF['Body']['Start XRef Entries']:
                         #self.__error_control('SpecViolation', 'Table offset is misaligned.', 'XRef Table')
                         self.__update_mal_index(1, 5)
 
-            if pdf['Body'].has_key('XRef Tables'):
-                for i in range(0, len(pdf['Body']['XRef Tables'])):
-                    for j in range(1, len(pdf['Body']['XRef Tables'][i])):
-                        for k in pdf['Body']['XRef Tables'][i][j]:
+            if self.__PDF['Body'].has_key('XRef Tables'):
+                for i in range(0, len(self.__PDF['Body']['XRef Tables'])):
+                    for j in range(1, len(self.__PDF['Body']['XRef Tables'][i])):
+                        for k in self.__PDF['Body']['XRef Tables'][i][j]:
                             entry = k.split(' ')
                             if entry[2] == 'n':
                                 oentry = int(entry[0])
-                                if not omap['IO Offsets'].has_key(oentry):
+                                if not self.__omap['IO Offsets'].has_key(oentry):
                                     #self.__error_control('SpecViolation', 'There is no indirect object located at ' + str(oentry), 'XRef Table')
                                     self.__update_mal_index(1, 5)
 
@@ -1200,23 +1211,23 @@ class PyDF2JSON(object):
             # Example: Download this from VirusTotal: 1E51C658D922410306F042FB12FFEB9F
             # Linearized PDF's may also be a problem for this code :/
             # I might have fixed it. Uncommenting...
-            if omap.has_key('XRS Offsets'):
-                for i in omap['XRS Offsets']:
+            if self.__omap.has_key('XRS Offsets'):
+                for i in self.__omap['XRS Offsets']:
                     tmpo = str(i)
-                    if not tmpo in pdf['Body']['Start XRef Entries']:
+                    if not tmpo in self.__PDF['Body']['Start XRef Entries']:
                         #self.__error_control('SpecViolation', 'Table offset is misaligned.', 'XRef Stream')
                         self.__update_mal_index(1, 5)
 
             # It is highly unlikely that tampering has resulted in the offsets being wrong inside a compressed object
             # stream so, here we check only for the offsets of "uncompressed" 'Used Objects'
-            if pdf['Body'].has_key('XRef Streams'):
-                for i in range(0, len(pdf['Body']['XRef Streams'])):
-                    for j in range(0, len(pdf['Body']['XRef Streams'][i])):
-                        if pdf['Body']['XRef Streams'][i][j].has_key('Type'):
-                            if pdf['Body']['XRef Streams'][i][j]['Type'] == 'Used Object':
-                                entry = pdf['Body']['XRef Streams'][i][j]['Value'].split(' ')
+            if self.__PDF['Body'].has_key('XRef Streams'):
+                for i in range(0, len(self.__PDF['Body']['XRef Streams'])):
+                    for j in range(0, len(self.__PDF['Body']['XRef Streams'][i])):
+                        if self.__PDF['Body']['XRef Streams'][i][j].has_key('Type'):
+                            if self.__PDF['Body']['XRef Streams'][i][j]['Type'] == 'Used Object':
+                                entry = self.__PDF['Body']['XRef Streams'][i][j]['Value'].split(' ')
                                 oentry = int(entry[0])
-                                if not omap['IO Offsets'].has_key(oentry):
+                                if not self.__omap['IO Offsets'].has_key(oentry):
                                     #self.__error_control('SpecViolation', 'There is no indirect object located at ' + str(oentry), 'XRef Stream')
                                     self.__update_mal_index(1, 5)
 
@@ -1267,51 +1278,51 @@ class PyDF2JSON(object):
         js_count = len(js)
 
         ad = []
-        if pdf['Body'].has_key('Arbitrary Data'):
-            for i in pdf['Body']['Arbitrary Data']:
+        if self.__PDF['Body'].has_key('Arbitrary Data'):
+            for i in self.__PDF['Body']['Arbitrary Data']:
                 ad.append({'Length': i['Length'], 'Type': i['Value Type'], 'Offset': i['Offset']})
-        summary['Encryption'] = {}
+        self.__summary['Encryption'] = {}
         if self.__is_crypted:
-            summary['Encryption']['enabled'] = True
-            summary['Encryption']['file_key'] = self.__crypt_handler_info['file_key'].encode('hex').upper()
-            summary['Encryption']['key_length'] = self.__crypt_handler_info['key_length']
+            self.__summary['Encryption']['enabled'] = True
+            self.__summary['Encryption']['file_key'] = self.__crypt_handler_info['file_key'].encode('hex').upper()
+            self.__summary['Encryption']['key_length'] = self.__crypt_handler_info['key_length']
             if self.__crypt_handler_info['method'] == 'V2' or self.__crypt_handler_info['method'] == 'RC4':
-                summary['Encryption']['algorithm'] = 'RC4'
+                self.__summary['Encryption']['algorithm'] = 'RC4'
             if self.__crypt_handler_info['method'][0:3] == 'AES':
-                summary['Encryption']['algorithm'] = 'AES'
+                self.__summary['Encryption']['algorithm'] = 'AES'
 
         else:
-            summary['Encryption']['enabled'] = False
-        summary['Additional Actions'] = aa
-        summary['Arbitrary Data'] = ad
-        summary['Pages'] = page_count
-        summary['AcroForms'] = acro_count
-        summary['AcroForm Actions'] = a_actions
-        summary['OpenActions'] = open_count
-        summary['Names'] = names
-        summary['EmbeddedFiles'] = name_files
-        summary['JavaScript'] = name_javascript
-        summary['JS'] = js_count
-        summary['Launch'] = launchie
-        if pdf['Body'].has_key('Object Streams'):
-            summary['Object Streams'] = len(pdf['Body']['Object Streams'])
+            self.__summary['Encryption']['enabled'] = False
+        self.__summary['Additional Actions'] = aa
+        self.__summary['Arbitrary Data'] = ad
+        self.__summary['Pages'] = page_count
+        self.__summary['AcroForms'] = acro_count
+        self.__summary['AcroForm Actions'] = a_actions
+        self.__summary['OpenActions'] = open_count
+        self.__summary['Names'] = names
+        self.__summary['EmbeddedFiles'] = name_files
+        self.__summary['JavaScript'] = name_javascript
+        self.__summary['JS'] = js_count
+        self.__summary['Launch'] = launchie
+        if self.__PDF['Body'].has_key('Object Streams'):
+            self.__summary['Object Streams'] = len(self.__PDF['Body']['Object Streams'])
         else:
-            summary['Object Streams'] = 0
+            self.__summary['Object Streams'] = 0
 
-        return summary
+        return
 
 
-    def __map_object(self, pdf, omap, ref = None, offset = None, trace = False):
+    def __map_object(self, ref = None, offset = None, trace = False):
         ret_val = {}
         ret_val['Indirect Objects'] = []
         ret_val['Object Streams'] = []
 
         if not ref == None:
-            if omap['IO'].has_key(ref):
-                for i in omap['IO'][ref]:
+            if self.__omap['IO'].has_key(ref):
+                for i in self.__omap['IO'][ref]:
                     ret_val['Indirect Objects'].append({'Index': i[0]})
-            if omap['OS'].has_key(ref):
-                for i in omap['OS'][ref]:
+            if self.__omap['OS'].has_key(ref):
+                for i in self.__omap['OS'][ref]:
                     ret_val['Object Streams'].append({'Index': i[0]})
 
         if trace:
@@ -1319,44 +1330,46 @@ class PyDF2JSON(object):
             for i in ret_val:
                 for j in range(0, len(ret_val[i])):
                     index = ret_val[i][j]['Index']
-                    ret_val[i][j]['Value'] = pdf[i][index][ref]
+                    ret_val[i][j]['Value'] = self.__PDF['Body'][i][index][ref]
         return ret_val
 
 
-    def __assemble_map(self, pdf, omap):
-        # Process Indirect Objects:
-        for i in range(0, len(pdf['Indirect Objects'])):
-            key = pdf['Indirect Objects'][i].keys()[0] # For indirect objects, there should only ever be one key per index
-            if not omap['IO'].has_key(key):
-                omap['IO'][key] = []
-            omap['IO'][key].append([i, pdf['Indirect Objects'][i][key]['Offset']])
-            # Reverse map of offsets to indirect objects
-            if not omap['IO Offsets'].has_key(pdf['Indirect Objects'][i][key]['Offset']):
-                omap['IO Offsets'][pdf['Indirect Objects'][i][key]['Offset']] = ''
-            omap['IO Offsets'][pdf['Indirect Objects'][i][key]['Offset']] = key
+    def __assemble_map(self, func):
+        if func == "IO":
+            # Process Indirect Objects:
+            for i in range(0, len(self.__PDF['Body']['Indirect Objects'])):
+                key = self.__PDF['Body']['Indirect Objects'][i].keys()[0] # For indirect objects, there should only ever be one key per index
+                if not self.__omap['IO'].has_key(key):
+                    self.__omap['IO'][key] = []
+                self.__omap['IO'][key].append([i, self.__PDF['Body']['Indirect Objects'][i][key]['Offset']])
+                # Reverse map of offsets to indirect objects
+                if not self.__omap['IO Offsets'].has_key(self.__PDF['Body']['Indirect Objects'][i][key]['Offset']):
+                    self.__omap['IO Offsets'][self.__PDF['Body']['Indirect Objects'][i][key]['Offset']] = ''
+                self.__omap['IO Offsets'][self.__PDF['Body']['Indirect Objects'][i][key]['Offset']] = key
 
-        # Process object streams
-        if pdf.has_key('Object Streams'):
-            for i in range(0, len(pdf['Object Streams'])):
-                keys = pdf['Object Streams'][i].keys()
-                for key in keys:
-                    if not key == 'Back Ref':
-                        if not omap['OS'].has_key(key):
-                            omap['OS'][key] = []
-                        back_ref = pdf['Object Streams'][i]['Back Ref']
-                        src_index = omap['IO'][back_ref]
-                        omap['OS'][key].append([i, back_ref, src_index])
+        if func == "OS":
+            # Process object streams
+            if self.__PDF['Body'].has_key('Object Streams'):
+                for i in range(0, len(self.__PDF['Body']['Object Streams'])):
+                    keys = self.__PDF['Body']['Object Streams'][i].keys()
+                    for key in keys:
+                        if not key == 'Back Ref':
+                            if not self.__omap['OS'].has_key(key):
+                                self.__omap['OS'][key] = []
+                            back_ref = self.__PDF['Body']['Object Streams'][i]['Back Ref']
+                            src_index = self.__omap['IO'][back_ref]
+                            self.__omap['OS'][key].append([i, back_ref, src_index])
 
-        # Process xref table offsets (just the table offsets, not the offsets of all the objects within)
-        if pdf.has_key('XRef Tables'):
-            for i in range(0, len(pdf['XRef Tables'])):
-                omap['XRT Offsets'].append(pdf['XRef Tables'][i][0]['Offset'])
+            # Process xref table offsets (just the table offsets, not the offsets of all the objects within)
+            if self.__PDF['Body'].has_key('XRef Tables'):
+                for i in range(0, len(self.__PDF['Body']['XRef Tables'])):
+                    self.__omap['XRT Offsets'].append(self.__PDF['Body']['XRef Tables'][i][0]['Offset'])
 
-        if pdf.has_key('XRef Streams'):
-            for i in range(0, len(pdf['XRef Streams'])):
-                backref = pdf['XRef Streams'][i][-1:][0]['Back Ref']
-                if omap['IO'].has_key(backref):
-                    omap['XRS Offsets'].append(omap['IO'][backref][0][1])
+            if self.__PDF['Body'].has_key('XRef Streams'):
+                for i in range(0, len(self.__PDF['Body']['XRef Streams'])):
+                    backref = self.__PDF['Body']['XRef Streams'][i][-1:][0]['Back Ref']
+                    if self.__omap['IO'].has_key(backref):
+                        self.__omap['XRS Offsets'].append(self.__omap['IO'][backref][0][1])
         return
 
 
@@ -1368,10 +1381,9 @@ class PyDF2JSON(object):
         return e
 
 
-    def __process_streams(self, x, bod, summary):
-        cur_stream = ''
+    def __process_streams(self, x):
         i_object_index = 0
-        for i in bod['Indirect Objects']:
+        for i in self.__PDF['Body']['Indirect Objects']:
             cur_error = ''
             obj_name = i.keys()[0]
             if i[obj_name].has_key('Stream Dimensions'):
@@ -1382,9 +1394,9 @@ class PyDF2JSON(object):
                     # Go grab object specified in indirect reference
                     i_ref =  i[obj_name]['Stream Dimensions']['Length']['Value']
                     i_ref = i_ref.replace(' R', '')
-                    for ii in range(0, len(bod['Indirect Objects'])):
-                        if bod['Indirect Objects'][ii].has_key(i_ref):
-                            stream_length = int(bod['Indirect Objects'][ii][i_ref]['Value'])
+                    for ii in range(0, len(self.__PDF['Body']['Indirect Objects'])):
+                        if self.__PDF['Body']['Indirect Objects'][ii].has_key(i_ref):
+                            stream_length = int(self.__PDF['Body']['Indirect Objects'][ii][i_ref]['Value'])
                             break
 
                 cur_stream = x[stream_start:stream_start + stream_length]
@@ -1447,45 +1459,45 @@ class PyDF2JSON(object):
                             cur_stream = self.crypto.decrypt(self.__crypt_handler_info, cur_stream, 'stream', obj_name)
 
                 if not cur_error == '':
-                    bod['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
+                    self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
                     i_object_index += 1
                     continue
                 stream_type = None
                 if i[obj_name]['Value'].has_key('Type'):
                     if i[obj_name]['Value']['Type']['Value'] == 'XRef':
                         stream_type = 'XRef'
-                        bod['Indirect Objects'][i_object_index][obj_name]['Stream Type'] = 'XRef'
+                        self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Stream Type'] = 'XRef'
                         try:
                             xref_stream = self.__process_xref_stream(cur_stream, i[obj_name]['Value'], obj_name)
                         except:
                             cur_error = 'exception:(__process_xref_stream) in %s' % obj_name
                         if not cur_error == '':
-                            bod['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
+                            self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
                             i_object_index += 1
                             continue
-                        if not bod.has_key('XRef Streams'):
-                            bod['XRef Streams'] = []
-                        bod['XRef Streams'].append(xref_stream)
-                        xref_index = len(bod['XRef Streams']) - 1
-                        bod['Indirect Objects'][i_object_index][obj_name]['XRef Stream Index'] = xref_index
-                        bod['Indirect Objects'][i_object_index][obj_name].pop('Stream Dimensions')
+                        if not self.__PDF['Body'].has_key('XRef Streams'):
+                            self.__PDF['Body']['XRef Streams'] = []
+                        self.__PDF['Body']['XRef Streams'].append(xref_stream)
+                        xref_index = len(self.__PDF['Body']['XRef Streams']) - 1
+                        self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['XRef Stream Index'] = xref_index
+                        self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name].pop('Stream Dimensions')
                     if i[obj_name]['Value']['Type']['Value'] == 'ObjStm':
                         stream_type = 'ObjStm'
-                        bod['Indirect Objects'][i_object_index][obj_name]['Stream Type'] = 'ObjStm'
+                        self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Stream Type'] = 'ObjStm'
                         try:
                             objstm = self.__process_object_stream(cur_stream, i[obj_name]['Value'], obj_name)
                         except:
                             cur_error = 'exception:(__process_object_stream) in %s' % obj_name
                         if not cur_error == '':
-                            bod['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
+                            self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Stream Error'] = self.__exception2str(cur_error)
                             i_object_index += 1
                             continue
-                        if not bod.has_key('Object Streams'):
-                            bod['Object Streams'] = []
-                        bod['Object Streams'].append(objstm)
-                        objstm_index = len(bod['Object Streams']) - 1
-                        bod['Indirect Objects'][i_object_index][obj_name]['Object Stream Index'] = objstm_index
-                        bod['Indirect Objects'][i_object_index][obj_name].pop('Stream Dimensions')
+                        if not self.__PDF['Body'].has_key('Object Streams'):
+                            self.__PDF['Body']['Object Streams'] = []
+                        self.__PDF['Body']['Object Streams'].append(objstm)
+                        objstm_index = len(self.__PDF['Body']['Object Streams']) - 1
+                        self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Object Stream Index'] = objstm_index
+                        self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name].pop('Stream Dimensions')
                 if stream_type == None:
                     stream_type = self.__identify_stream(cur_stream)
                     if stream_type == '':
@@ -1496,22 +1508,22 @@ class PyDF2JSON(object):
                         except:
                             pass
                 stream_hash = self.__hash_stream(cur_stream)
-                bod['Indirect Objects'][i_object_index][obj_name]['Stream Hashes'] = stream_hash
+                self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Stream Hashes'] = stream_hash
                 if self.dump_streams:
                     dump_file = self.__gen_random_file()
                     open(self.dump_loc + dump_file, 'wb').write(cur_stream)
-                    bod['Indirect Objects'][i_object_index][obj_name]['Stream Dump Location'] = self.dump_loc + dump_file
-                    summary['Dumped Files'].append(self.dump_loc + dump_file)
+                    self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Stream Dump Location'] = self.dump_loc + dump_file
+                    self.__summary['Dumped Files'].append(self.dump_loc + dump_file)
 
                 if i[obj_name]['Value'].has_key('Type') and stream_type == 'Unknown':
-                    stream_type = bod['Indirect Objects'][i_object_index][obj_name]['Value']['Type']['Value']
-                bod['Indirect Objects'][i_object_index][obj_name]['Stream Type'] = stream_type
+                    stream_type = self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Value']['Type']['Value']
+                self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name]['Stream Type'] = stream_type
 
                 # Last thing to do...
-                if bod['Indirect Objects'][i_object_index][obj_name].has_key('Stream Dimensions'):
-                    bod['Indirect Objects'][i_object_index][obj_name].pop('Stream Dimensions')
+                if self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name].has_key('Stream Dimensions'):
+                    self.__PDF['Body']['Indirect Objects'][i_object_index][obj_name].pop('Stream Dimensions')
             i_object_index += 1
-        return bod
+        return
 
 
     def __parse_mcid(self, my_stream):
@@ -2037,7 +2049,7 @@ class PyDF2JSON(object):
         return decoded_data
 
 
-    def __body_scan(self, x, s_point, summary):
+    def __body_scan(self, x, s_point):
         c = s_point
         l = len(x)
         body = {}
@@ -2075,7 +2087,7 @@ class PyDF2JSON(object):
                         dump_file = self.__gen_random_file()
                         open(self.dump_loc + dump_file, 'wb').write(arb_data)
                         body['Arbitrary Data'][-1]['Stream Dump Location'] = self.dump_loc + dump_file
-                        summary['Dumped Files'].append(self.dump_loc + dump_file)
+                        self.__summary['Dumped Files'].append(self.dump_loc + dump_file)
                     arb_data = ''
                 else:
                     break
@@ -2249,7 +2261,8 @@ class PyDF2JSON(object):
                     break
                 continue
             current_position = c
-        return body
+        self.__PDF['Body'] = body
+        return
 
 
     def __get_stream_dimensions(self, x_str, s_point):
@@ -3153,7 +3166,8 @@ class PyDF2JSON(object):
         return file_name
 
 
-    def get_encryption_handler(self, x, summary):
+    def get_encryption_handler(self, x):
+        self.__crypt_handler_info['run'] += 1
         xref_offsets = []
         xref_tables = []
         trailers = {}
@@ -3270,7 +3284,7 @@ class PyDF2JSON(object):
                     stream_dimensions['Start'] = ret_stream[1]
                     trailers['Indirect Objects'][index][trailer]['Stream Dimensions'] = stream_dimensions
                     self.__crypt_handler_info['doc_id'] = trailers['Indirect Objects'][index][trailer]['Value']['ID']['Value'][0]['Value'].decode('hex')
-                    self.__process_streams(x, trailers, summary)
+                    self.__process_streams(x, trailers)
 
 
         if len(trailers['Indirect Objects']) == 0 and len(trailers['Trailers']) == 0: # We have no Encrypt entries
