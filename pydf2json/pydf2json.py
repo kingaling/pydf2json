@@ -3284,7 +3284,10 @@ class PyDF2JSON(object):
                     stream_dimensions['Start'] = ret_stream[1]
                     trailers['Indirect Objects'][index][trailer]['Stream Dimensions'] = stream_dimensions
                     self.__crypt_handler_info['doc_id'] = trailers['Indirect Objects'][index][trailer]['Value']['ID']['Value'][0]['Value'].decode('hex')
-                    self.__process_streams(x, trailers)
+                    # __process_streams expects a Body structure to already be present.
+                    # sending trailer information to the pdf struct:
+                    self.__PDF['Body'] = trailers
+                    self.__process_streams(x)
 
 
         if len(trailers['Indirect Objects']) == 0 and len(trailers['Trailers']) == 0: # We have no Encrypt entries
@@ -3307,8 +3310,8 @@ class PyDF2JSON(object):
 
         # k... we have the object number that contains the encryption dictionary stored in enc_dict now
 
+        offset = []  # Making a list just incase the indirect object we're looking for has been defined more than once
         for i in enc_dict:
-            offset = [] # Making a list just incase the indirect object we're looking for has been defined more than once
             i_key = i.keys()[0]
             i_val = i.values()[0]
             if i_val == 'XRef Tables':
