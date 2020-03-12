@@ -130,55 +130,55 @@ class LZWDecoder(object):
         return
 
 class PyDF2JSON(object):
+    def __init__(self):
+        # Instantiate pdf crypto functions
+        self.crypto = pdfcrypt.PDFCrypto()
 
-    # Instantiate pdf crypto functions
-    crypto = pdfcrypt.PDFCrypto()
+        # password: Use this password to decrypt document.
+        self.pdf_password = ''
 
-    # password: Use this password to decrypt document.
-    pdf_password = ''
+        # dump_streams: Dump streams to a temp location. Using this for LaikaBOSS objects.
+        self.dump_streams = False
 
-    # dump_streams: Dump streams to a temp location. Using this for LaikaBOSS objects.
-    dump_streams = False
+        # max_size: Set a maximum size limit. Most PDF's I have seen that are malicious were no bigger than 500K.
+        # But we'll set it to 2MB. Takes integers only. All integers will be treated as MB.
+        self.max_size = 2
 
-    # max_size: Set a maximum size limit. Most PDF's I have seen that are malicious were no bigger than 500K.
-    # But we'll set it to 2MB. Takes integers only. All integers will be treated as MB.
-    max_size = 2
+        # temp_loc: Temp directory where temp files are created that we need to work with
+        self.__chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        self.__temp_dir = "".join(random.sample(self.__chars, 16))
 
-    # temp_loc: Temp directory where temp files are created that we need to work with
-    __chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-    __temp_dir = "".join(random.sample(__chars, 16))
+        if platform_sys() == 'Windows':
+            self.__os_windows = True
+            self.dump_loc = gettempdir() + '\\'
+        else:
+            self.__os_windows = False
+            self.dump_loc = gettempdir() + '/'
 
-    if platform_sys() == 'Windows':
-        __os_windows = True
-        dump_loc = gettempdir() + '\\'
-    else:
-        __os_windows = False
-        dump_loc = gettempdir() + '/'
+        # Keeping score of the shenanigans
+        self.__overall_mal_index = [0, 0, 0, 0, 0, 0, 0, 0]
 
-    # Keeping score of the shenanigans
-    __overall_mal_index = [0, 0, 0, 0, 0, 0, 0, 0]
+        # is doc encrypted?
+        self.__is_crypted = False
+        self.__crypt_handler_info = dict()
+        self.__crypt_handler_info['o_keys'] = {}
+        self.__crypt_handler_info['o_ignore'] = []
+        self.__crypt_handler_info['o_ignore'].append('NO_DECRYPT')
+        self.__crypt_handler_info['run'] = 0
 
-    # is doc encrypted?
-    __is_crypted = False
-    __crypt_handler_info = dict()
-    __crypt_handler_info['o_keys'] = {}
-    __crypt_handler_info['o_ignore'] = []
-    __crypt_handler_info['o_ignore'].append('NO_DECRYPT')
-    __crypt_handler_info['run'] = 0
+        # Object map:
+        self.__omap = dict()
+        self.__omap['IO'] = {}
+        self.__omap['OS'] = {}
+        self.__omap['IO Offsets'] = {}
+        self.__omap['XRT Offsets'] = []
+        self.__omap['XRS Offsets'] = []
 
-    # Object map:
-    __omap = dict()
-    __omap['IO'] = {}
-    __omap['OS'] = {}
-    __omap['IO Offsets'] = {}
-    __omap['XRT Offsets'] = []
-    __omap['XRS Offsets'] = []
+        # PDF structure storage
+        self.__PDF = dict()
 
-    # PDF structure storage
-    __PDF = dict()
-
-    # Summary of PDF properties
-    __summary = dict()
+        # Summary of PDF properties
+        self.__summary = dict()
 
     # Malware Index:
     # Each index has a max value of 0xFF (255)
