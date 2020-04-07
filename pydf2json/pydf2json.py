@@ -1071,6 +1071,8 @@ class PyDF2JSON(object):
                             if obj['Names'].has_key('Value Type'):
                                 if obj['Names']['Value Type'] == 'Array':
                                     for i in range(0, len(obj['Names']['Value'])):
+                                        if not 'tmp_var' in locals():
+                                            tmp_var = {}
                                         if obj['Names']['Value'][i]['Value Type'] == 'Dictionary':
                                             if obj['Names']['Value'][i]['Value'].has_key('Type'):
                                                 if obj['Names']['Value'][i]['Value']['Type']['Value'] == 'Filespec':
@@ -1086,7 +1088,6 @@ class PyDF2JSON(object):
                                                                 tmp_var['Location'] = obj['Names']['Value'][i]['Value']['EF']['Value']
                                                                 tmp_item.append(tmp_var)
                                         if obj['Names']['Value'][i]['Value Type'] == 'Literal String':
-                                            tmp_var = {}
                                             tmp_var['Name'] = obj['Names']['Value'][i]['Value']
                                         if obj['Names']['Value'][i]['Value Type'] == 'Indirect Reference':
                                             tmp_var['Location'] = obj['Names']['Value'][i]['Value']
@@ -1159,7 +1160,7 @@ class PyDF2JSON(object):
                                 for k in range(0, len(loc_map[j])):
                                     loc_val = loc_map[j][k]['Value']
                                     __process_js(loc_val)
-                if obj.has_key('Name') and obj.has_key('Location'): # We are dealing with a name tree entry
+                if (obj.has_key('Name') and obj.has_key('Location')) or obj.has_key('Location'): # We are dealing with a name tree entry
                     # Location is an indirect object reference
                     loc = obj['Location'].replace(' R', '')
                     if not loc in processed_objects:
