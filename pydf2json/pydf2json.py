@@ -2066,7 +2066,7 @@ class PyDF2JSON(object):
                 if arb_data == '%':
                     # We have a comment in no mans land. Placing comments anywhere... is legal per the spec.
                     # I don't think we can just call this arbitrary data. Skipping past it.
-                    end_arb = self.__line_scan(x, c + 1)[1]
+                    end_arb = self.__line_scan(x, c + 1, l)[1]
                     c = end_arb
                     arb_data = ''
                     last_position = c
@@ -2076,8 +2076,8 @@ class PyDF2JSON(object):
                 if not body.has_key('Arbitrary Data'):
                             body['Arbitrary Data'] = []
                 c += 1
-                if re.search('(\d{1,10}\s+\d{1,10}\s+obj|xref|trailer|startxref|%%EOF)', x[c:]):
-                    end_arb = re.search('(\d{1,10}\s+\d{1,10}\s+obj|xref|trailer|startxref|%%EOF)', x[c:]).start()
+                if re.search('(\d{1,10}\s+\d{1,10}\s+obj|xref|trailer|startxref|%%EO)', x[c:]):
+                    end_arb = re.search('(\d{1,10}\s+\d{1,10}\s+obj|xref|trailer|startxref|%%EO)', x[c:]).start()
                     arb_data += x[c:c + end_arb]
                     c += end_arb
                     arb_type, arb_data = self.__process_arbitrary_data(arb_data)
@@ -2242,7 +2242,14 @@ class PyDF2JSON(object):
                     body['Start XRef Entries'] = []
                 c += 9
                 char_loc = self.__eol_scan(x, c)
-                xref_end = re.search('%%EOF', x[c:]).start() + c
+                # Some apps are creating docs with an incomplete eof. They are missing the 'F'.
+                # Happens so often I'm making an exception for them :/
+                eof = '%%EOF'
+                while len(re.findall(eof, x[c:])) == 0:
+                    if eof == '%%EO':
+                        self.__error_control('SpecViolation', 'EOF missing')
+                    eof = eof[:-1]
+                xref_end = re.search(eof, x[c:]).start() + c
                 xref_offset = x[c:xref_end]
                 c = xref_end
                 current_position = c
@@ -2256,6 +2263,7 @@ class PyDF2JSON(object):
                             break
                 body['Start XRef Entries'].append(xref_offset)
             if re.match('%%EOF', x[char_loc:char_loc + 5]):
+                # At this point a trailing %%EO without an "F" will not cause issues
                 c += 5
                 current_position = c
                 if c >= l:
@@ -3132,7 +3140,7 @@ class PyDF2JSON(object):
         return headers
 
 
-    def __line_scan(self, x_str, s_point):
+    def __line_scan(self, x_str, s_point, fend = None):
         # Scans a comment looking for the first EOL character it finds, signifying the end of the comment.
         # Function then returns only the comment with no trailing EOL character.
         c = s_point
@@ -3142,6 +3150,8 @@ class PyDF2JSON(object):
             if not x_str[c] == '\x0D' and not x_str[c] == '\x0A':
                 temp_str += x_str[c]
                 c += 1
+                if fend and c >= fend:
+                    x = False
             else:
                 x = False
         return temp_str, c
@@ -3183,7 +3193,14 @@ class PyDF2JSON(object):
             x_start = re.search('startxref', x[pos:]).start() + pos
             pos = (x_start + 9)
             char_loc = self.__eol_scan(x, pos)
-            xref_end = re.search('%%EOF', x[pos:]).start() + pos
+            # Some apps are creating docs with an incomplete eof. They are missing the 'F'.
+            # Happens so often I'm making an exception for them :/
+            eof = '%%EOF'
+            while len(re.findall(eof, x[pos:])) == 0:
+                if eof == '%%EO':
+                    self.__error_control('SpecViolation', 'EOF missing')
+                eof = eof[:-1]
+            xref_end = re.search(eof, x[pos:]).start() + pos
             xref_offset = x[char_loc:xref_end]
             pos = xref_end
             while True:
