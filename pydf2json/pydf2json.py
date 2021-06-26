@@ -1579,6 +1579,8 @@ class PyDF2JSON(object):
                                 top_str = temp_str
                                 b_pos = 0
                                 break
+                    else:
+                        top_str = top_str[s_start + 2:]
                 else:
                     break
             return strings
@@ -2837,6 +2839,8 @@ class PyDF2JSON(object):
                         if self.__is_crypted:
                             if not cur_obj in self.__crypt_handler_info['o_ignore']:
                                 v_val = self.crypto.decrypt(self.__crypt_handler_info, v_val.encode('hex'), v_type, cur_obj)
+                        if len(v_val) == 0:
+                            v_val = 'NULL'
 
                     if p_type[0] == 'Dict':
                         v_type = 'Dictionary'
