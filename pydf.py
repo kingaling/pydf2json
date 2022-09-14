@@ -20,7 +20,7 @@ import json
 import argparse
 
 
-__version__ = '2.3.4'
+__version__ = '2.4.0'
 __author__ = 'Shane King <kingaling_at_meatchicken_dot_net>'
 
 
