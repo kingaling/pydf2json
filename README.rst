@@ -62,11 +62,3 @@ My Reasons
 
 This code was inspired by my desire to have a pdf analysis module for the LaikaBOSS framework.
 See: `LaikaBOSS <https://github.com/lmco/laikaboss>`_ developed by Lockheed Martin.
-
-
-
-To Do
------
-
-1. Malware index
-    - Need to work on the malware index described on line 183 of pydf2json.py

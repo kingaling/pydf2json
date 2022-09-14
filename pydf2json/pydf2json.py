@@ -180,7 +180,7 @@ class PyDF2JSON(object):
         # Summary of PDF properties
         self.__summary = dict()
 
-    # Malware Index:
+    # Malware Index: (not doing this)
     # Each index has a max value of 0xFF (255)
 
     # 00 00 00 00 00 00 00 00
@@ -194,7 +194,7 @@ class PyDF2JSON(object):
     # |_________________________ Not used yet
 
     # Starred items (*) will be calculated during __get_summary()
-
+    # Decided not to pursue this because so many pdf app developers did not follow the standards
 
     def expose_pdfstruct(self):
         return self.__PDF
