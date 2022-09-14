@@ -128,7 +128,7 @@ def main():
 
     pdfobj = pydf2json.PyDF2JSON()
     try:
-        handler = pdfobj.get_encryption_handler(x, None)
+        handler = pdfobj.get_encryption_handler(x)
     except Exception as e:
         print e
         exit()
