@@ -47,7 +47,7 @@ Usage
              MD5        0F49F102421C286E50CD40EBDDB105AF
 
 pydf.py calls the pydf2json module to convert the PDF into a json-style dict and then accesses the structure to create the summary you see above.
-pydf2json.py can be called from your own programs with ``import pydf2json``. See the `wiki <https://github.com/xamiel/pydf2json/wiki/pydf2json.py>`_.
+pydf2json.py can be called from your own programs with ``import pydf2json``.
 
 Error Reporting
 ---------------

@@ -14,7 +14,7 @@ setup(
     name = 'pydf2json',
     version = '2.4.0',
     packages=['pydf2json', 'pydf2json.scripts'],
-    url = 'https://github.com/xamiel/pydf2json',
+    url = 'https://github.com/kingaling/pydf2json',
     license = 'GPL-3.0',
     author = 'Shane King',
     author_email = 'kinagling@meatchicken.net',
@@ -27,7 +27,7 @@ setup(
         ]
     },
     python_requires = '>=2.6, <3',
-    keywords = ['pdf', 'pydf2json', 'pdf analysis', 'python', 'python pdf', 'pdf crack'],
+    keywords = ['pdf', 'pydf2json', 'pdf analysis', 'python', 'python pdf', 'pdf crack', 'laikaboss'],
     classifiers = [
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Information Technology',
@@ -35,6 +35,7 @@ setup(
         'Natural Language :: English',
         'Operating System :: MacOS',
         'Operating System :: Microsoft :: Windows :: Windows 7',
+        'Operating System :: Microsoft :: Windows :: Windows 10',
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python :: 2.7',
         'Topic :: Scientific/Engineering :: Information Analysis',
